@@ -5,6 +5,8 @@ __pycache__/
 venv/
 outputs/*.tmp
 outputs/uploads/
+outputs/previews/
+outputs/v2-test/
 outputs/web-server*.log
 outputs/web-server.pid
 outputs/*-教案-*.docx

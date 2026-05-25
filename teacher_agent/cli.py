@@ -7,7 +7,7 @@ from pathlib import Path
 from .docx_filler import fill_docx_template
 from .lesson_generator import build_lesson_prompt, draft_lesson_fields, write_lesson_json
 from .sample_template import create_sample_template
-from .template_parser import scan_template
+from .template_parser import analyze_template
 
 
 def _read_text(path: str | Path) -> str:
@@ -15,8 +15,8 @@ def _read_text(path: str | Path) -> str:
 
 
 def cmd_scan_template(args: argparse.Namespace) -> None:
-    fields = scan_template(args.template)
-    print(json.dumps({"template": args.template, "fields": fields}, ensure_ascii=False, indent=2))
+    analysis = analyze_template(args.template)
+    print(json.dumps({"template": args.template, **analysis}, ensure_ascii=False, indent=2))
 
 
 def cmd_fill_template(args: argparse.Namespace) -> None:

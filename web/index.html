@@ -87,6 +87,10 @@
                 <span class="button-icon" aria-hidden="true">↓</span>
                 <span>下载最新 Word</span>
               </a>
+              <a id="preview-link" class="glass-button preview-link is-disabled" href="#" target="_blank" rel="noreferrer" aria-disabled="true">
+                <span class="button-icon" aria-hidden="true">□</span>
+                <span>查看 Word 预览</span>
+              </a>
             </div>
           </div>
 
@@ -94,14 +98,20 @@
 
           <div class="summary-grid" id="summary-grid">
             <div>
-              <span>模板字段</span>
+              <span>已识别字段</span>
               <strong id="field-count">0</strong>
             </div>
             <div>
+              <span>模板模式</span>
+              <strong id="template-mode">待识别</strong>
+            </div>
+            <div class="summary-wide">
               <span>输出文件</span>
               <strong id="file-name">未导出</strong>
             </div>
           </div>
+
+          <div class="template-map" id="template-map" hidden></div>
 
           <div class="preview-list" id="preview-list"></div>
         </section>

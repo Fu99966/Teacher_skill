@@ -8,8 +8,9 @@
 2. 根据年级自动识别小学、中学或大学学段，调整教学目标、课堂活动和作业深度。
 3. 让教师在网页中检查和修改每个字段。
 4. 读取 Word 模板里的 `{{field_name}}` 占位符。
-5. 把确认后的教案字段填入模板。
-6. 尽量保留原模板的字体、表格、页眉页脚、段落样式。
+5. 如果模板没有占位符，自动识别表格中的“课题、教学目标、教学过程”等标签，把内容填入右侧单元格。
+6. 把确认后的教案字段填入模板。
+7. 尽量保留原模板的字体、表格、页眉页脚、段落样式。
 
 ## 项目结构
 
@@ -21,6 +22,7 @@ teacher-agent-skills/
     cli.py
     docx_filler.py
     lesson_generator.py
+    preview_renderer.py
     template_parser.py
   skills/
     lesson-plan-writer/
@@ -70,7 +72,7 @@ http://127.0.0.1:8765
 
 右侧内容如果在生成 Word 后又被修改，旧下载链接会自动失效，需要重新点击“生成 Word”。这样可保证下载文件与网页编辑区内容一致。
 
-扫描 Word 模板里的占位符：
+扫描 Word 模板，查看占位符和表格映射结果：
 
 ```powershell
 python -m teacher_agent.cli scan-template templates\your_template.docx
@@ -96,7 +98,7 @@ python -m teacher_agent.cli fill-template --template templates\your_template.doc
 
 ## Word 模板要求
 
-在学校原有教案模板中放入占位符即可，例如：
+推荐方式一：在学校原有教案模板中放入占位符，例如：
 
 ```text
 课题：{{lesson_title}}
@@ -107,6 +109,18 @@ python -m teacher_agent.cli fill-template --template templates\your_template.doc
 ```
 
 建议把每个占位符单独放在一个位置，不要把 `{{` 和 `}}` 分开设置不同字体。这样最容易保持原格式。
+
+方式二：如果学校模板不方便加占位符，也可以保留原表格。系统会自动识别左侧标签，并把内容写入同一行右侧单元格，例如：
+
+```text
+课题       [这里自动填课题]
+学科       [这里自动填学科]
+教学目标   [这里自动填教学目标]
+教学过程   [这里自动填教学过程]
+作业设计   [这里自动填作业]
+```
+
+网页会显示“占位符填充”或“表格映射填充”。如果本机安装了 LibreOffice，生成 Word 后还会提供 PDF 预览；没有安装时仍可正常下载 Word。
 
 ## 与 AgentSkills Runtime 的关系
 

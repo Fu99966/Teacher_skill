@@ -9,6 +9,9 @@ const exportButton = document.querySelector("#export-button");
 const fieldCount = document.querySelector("#field-count");
 const fileName = document.querySelector("#file-name");
 const previewList = document.querySelector("#preview-list");
+const templateMode = document.querySelector("#template-mode");
+const templateMap = document.querySelector("#template-map");
+const previewLink = document.querySelector("#preview-link");
 
 const fieldLabels = {
   lesson_title: "课题",
@@ -43,6 +46,8 @@ const previewOrder = [
 let currentFields = null;
 let currentTemplateId = null;
 let currentDownloadUrl = "#";
+let currentPreviewUrl = "#";
+let currentTemplateAnalysis = null;
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
@@ -64,12 +69,21 @@ function setDownloadReady(url, outputName) {
   downloadLink.setAttribute("aria-disabled", "false");
 }
 
+function setPreviewReady(url) {
+  currentPreviewUrl = url || "#";
+  previewLink.href = currentPreviewUrl;
+  previewLink.classList.toggle("is-disabled", !url);
+  previewLink.setAttribute("aria-disabled", url ? "false" : "true");
+}
+
 function setDownloadStale(message = "未导出") {
   currentDownloadUrl = "#";
+  currentPreviewUrl = "#";
   fileName.textContent = message;
   downloadLink.href = "#";
   downloadLink.classList.add("is-disabled");
   downloadLink.setAttribute("aria-disabled", "true");
+  setPreviewReady(null);
 }
 
 function refreshResultTitle(fields) {
@@ -101,6 +115,40 @@ function renderPreview(fields) {
     item.append(title, body);
     previewList.appendChild(item);
   });
+}
+
+function renderTemplateAnalysis(analysis) {
+  currentTemplateAnalysis = analysis || null;
+  if (!analysis) {
+    templateMode.textContent = "待识别";
+    templateMap.hidden = true;
+    templateMap.innerHTML = "";
+    return;
+  }
+
+  const placeholderCount = analysis.placeholders?.length || 0;
+  const mappingEntries = Object.entries(analysis.table_mappings || {});
+  templateMode.textContent = placeholderCount > 0 ? "占位符填充" : "表格映射填充";
+  templateMap.hidden = false;
+  templateMap.innerHTML = "";
+
+  const title = document.createElement("div");
+  title.className = "template-map-title";
+  title.textContent =
+    placeholderCount > 0
+      ? `已读取 ${placeholderCount} 个 Word 占位符，生成时保持原模板格式。`
+      : `未发现占位符，已按表格标签自动匹配 ${mappingEntries.length} 个字段。`;
+  templateMap.appendChild(title);
+
+  const list = document.createElement("div");
+  list.className = "template-map-list";
+  const fields = placeholderCount > 0 ? analysis.placeholders : mappingEntries.map(([field]) => field);
+  fields.forEach((field) => {
+    const chip = document.createElement("span");
+    chip.textContent = fieldLabels[field] || field;
+    list.appendChild(chip);
+  });
+  templateMap.appendChild(list);
 }
 
 function collectEditedFields() {
@@ -146,8 +194,10 @@ form.addEventListener("submit", async (event) => {
 
   currentFields = null;
   currentTemplateId = null;
+  currentTemplateAnalysis = null;
   exportButton.disabled = true;
   setDownloadStale("未导出");
+  renderTemplateAnalysis(null);
 
   try {
     const formData = new FormData(form);
@@ -163,8 +213,10 @@ form.addEventListener("submit", async (event) => {
 
     currentFields = data.fields;
     currentTemplateId = data.template_id;
+    currentTemplateAnalysis = data.template_analysis;
     refreshResultTitle(data.fields);
     fieldCount.textContent = String(data.template_fields.length);
+    renderTemplateAnalysis(data.template_analysis);
     renderPreview(data.fields);
     exportButton.disabled = false;
     setStatus("内容已生成");
@@ -203,9 +255,12 @@ exportButton.addEventListener("click", async () => {
     }
 
     currentFields = editedFields;
+    currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis;
     refreshResultTitle(currentFields);
+    renderTemplateAnalysis(currentTemplateAnalysis);
     setDownloadReady(data.download_url, data.output_name);
-    setStatus("最新 Word 已生成");
+    setPreviewReady(data.preview_url);
+    setStatus(data.preview_url ? "最新 Word 已生成，可查看真实预览" : "最新 Word 已生成；本机未检测到 PDF 预览工具");
   } catch (error) {
     setStatus(error.message || "导出失败", true);
   } finally {
@@ -223,6 +278,13 @@ downloadLink.addEventListener("click", (event) => {
   if (downloadLink.classList.contains("is-disabled")) {
     event.preventDefault();
     setStatus(currentFields ? "请先导出最新 Word" : "请先生成内容", true);
+  }
+});
+
+previewLink.addEventListener("click", (event) => {
+  if (previewLink.classList.contains("is-disabled")) {
+    event.preventDefault();
+    setStatus(currentFields ? "当前环境未生成预览，请下载 Word 查看" : "请先生成内容", true);
   }
 });
 

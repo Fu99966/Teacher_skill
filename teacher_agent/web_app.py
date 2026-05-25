@@ -12,14 +12,16 @@ from urllib.parse import quote, unquote, urlparse
 
 from .docx_filler import fill_docx_template
 from .lesson_generator import draft_lesson_fields
+from .preview_renderer import render_docx_pdf_preview
 from .sample_template import create_sample_template
-from .template_parser import scan_template
+from .template_parser import analyze_template
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = PROJECT_ROOT / "web"
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
 UPLOAD_DIR = OUTPUT_DIR / "uploads"
+PREVIEW_DIR = OUTPUT_DIR / "previews"
 TEMPLATE_DIR = PROJECT_ROOT / "templates"
 SAMPLE_MATERIAL = PROJECT_ROOT / "examples" / "sample_material.md"
 SAMPLE_TEMPLATE = TEMPLATE_DIR / "sample_lesson_template.docx"
@@ -135,6 +137,11 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             self._send_file(OUTPUT_DIR / name, as_attachment=True)
             return
 
+        if path.startswith("/preview/"):
+            name = Path(path.removeprefix("/preview/")).name
+            self._send_file(PREVIEW_DIR / name, as_attachment=False)
+            return
+
         if path == "/health":
             self._send(*_json_bytes({"ok": True}))
             return
@@ -158,6 +165,11 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if path.startswith("/download/"):
             name = Path(path.removeprefix("/download/")).name
             self._send_file_headers(OUTPUT_DIR / name, as_attachment=True)
+            return
+
+        if path.startswith("/preview/"):
+            name = Path(path.removeprefix("/preview/")).name
+            self._send_file_headers(PREVIEW_DIR / name, as_attachment=False)
             return
 
         self._send(*_json_bytes({"ok": True}), include_body=False)
@@ -187,7 +199,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
 
-    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, Path, list[str]]:
+    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, Path, dict]:
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             raise ValueError("请使用表单提交")
@@ -207,18 +219,19 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         material = _form_value(form, "material", "")
 
         template_path = self._save_template(form)
-        template_fields = scan_template(template_path)
-        return form, subject, grade, title, class_hour, material, template_path, template_fields
+        template_analysis = analyze_template(template_path)
+        return form, subject, grade, title, class_hour, material, template_path, template_analysis
 
     def _handle_draft(self) -> None:
-        _, subject, grade, title, class_hour, material, template_path, template_fields = self._read_lesson_form()
+        _, subject, grade, title, class_hour, material, template_path, template_analysis = self._read_lesson_form()
         lesson = draft_lesson_fields(subject, grade, title, material, class_hour)
 
         self._send(
             *_json_bytes(
                 {
                     "fields": lesson.to_dict(),
-                    "template_fields": template_fields,
+                    "template_fields": template_analysis["mapped_fields"],
+                    "template_analysis": template_analysis,
                     "template_id": _template_id_for(template_path),
                 }
             )
@@ -243,32 +256,41 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
         output_path = OUTPUT_DIR / output_name
         fill_docx_template(template_path, fields, output_path)
+        template_analysis = analyze_template(template_path)
+        preview_pdf = render_docx_pdf_preview(output_path, PREVIEW_DIR)
+        preview_url = f"/preview/{quote(preview_pdf.name)}" if preview_pdf else None
 
         self._send(
             *_json_bytes(
                 {
                     "output_name": output_name,
                     "download_url": f"/download/{quote(output_name)}",
+                    "preview_url": preview_url,
+                    "template_analysis": template_analysis,
                 }
             )
         )
 
     def _handle_generate(self) -> None:
-        _, subject, grade, title, class_hour, material, template_path, template_fields = self._read_lesson_form()
+        _, subject, grade, title, class_hour, material, template_path, template_analysis = self._read_lesson_form()
 
         lesson = draft_lesson_fields(subject, grade, title, material, class_hour)
         safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")
         output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
         output_path = OUTPUT_DIR / output_name
         fill_docx_template(template_path, lesson.to_dict(), output_path)
+        preview_pdf = render_docx_pdf_preview(output_path, PREVIEW_DIR)
+        preview_url = f"/preview/{quote(preview_pdf.name)}" if preview_pdf else None
 
         self._send(
             *_json_bytes(
                 {
                     "fields": lesson.to_dict(),
-                    "template_fields": template_fields,
+                    "template_fields": template_analysis["mapped_fields"],
+                    "template_analysis": template_analysis,
                     "output_name": output_name,
                     "download_url": f"/download/{quote(output_name)}",
+                    "preview_url": preview_url,
                 }
             )
         )
@@ -294,6 +316,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
 def run(host: str = "127.0.0.1", port: int = 8765) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
     TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
     if not SAMPLE_TEMPLATE.exists():
         create_sample_template(SAMPLE_TEMPLATE)

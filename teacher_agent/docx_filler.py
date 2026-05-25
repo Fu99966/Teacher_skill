@@ -6,7 +6,7 @@ from typing import Any
 
 from docx import Document
 
-from .template_parser import PLACEHOLDER_PATTERN, iter_paragraphs
+from .template_parser import PLACEHOLDER_PATTERN, analyze_template, iter_paragraphs
 
 
 def _docx_text(value: Any) -> str:
@@ -62,6 +62,54 @@ def _replace_paragraph(paragraph, data: dict[str, Any]) -> None:
         run.text = ""
 
 
+def _write_paragraph_preserving_style(paragraph, text: str) -> None:
+    if not paragraph.runs:
+        paragraph.add_run(_docx_text(text))
+        return
+
+    paragraph.runs[0].text = _docx_text(text)
+    for run in paragraph.runs[1:]:
+        run.text = ""
+
+
+def _write_cell_preserving_layout(cell, value: Any) -> None:
+    text = _docx_text(value)
+    if not cell.paragraphs:
+        cell.add_paragraph(text)
+        return
+
+    lines = text.split("\n")
+    _write_paragraph_preserving_style(cell.paragraphs[0], lines[0] if lines else "")
+    for paragraph in cell.paragraphs[1:]:
+        _write_paragraph_preserving_style(paragraph, "")
+
+    for line in lines[1:]:
+        paragraph = cell.add_paragraph()
+        paragraph.add_run(line)
+
+
+def _fill_table_mappings(document: Document, data: dict[str, Any], mappings: dict[str, Any]) -> None:
+    for field, target in mappings.items():
+        if field not in data:
+            continue
+        if target.get("type") != "table_cell":
+            continue
+
+        table_index = int(target.get("table", -1))
+        row_index = int(target.get("row", -1))
+        col_index = int(target.get("col", -1))
+        if table_index < 0 or row_index < 0 or col_index < 0:
+            continue
+        if table_index >= len(document.tables):
+            continue
+
+        table = document.tables[table_index]
+        if row_index >= len(table.rows) or col_index >= len(table.rows[row_index].cells):
+            continue
+
+        _write_cell_preserving_layout(table.rows[row_index].cells[col_index], data[field])
+
+
 def fill_docx_template(template_path: str | Path, data: dict[str, Any], output_path: str | Path) -> Path:
     """Fill placeholders in a .docx template while preserving document structure.
 
@@ -76,6 +124,9 @@ def fill_docx_template(template_path: str | Path, data: dict[str, Any], output_p
     document = Document(str(template_path))
     for paragraph in iter_paragraphs(document):
         _replace_paragraph(paragraph, data)
+
+    analysis = analyze_template(template_path)
+    _fill_table_mappings(document, data, analysis.get("table_mappings", {}))
 
     document.save(str(output_path))
     return output_path
