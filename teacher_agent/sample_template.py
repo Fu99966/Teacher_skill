@@ -1,117 +1,159 @@
 from __future__ import annotations
 
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
-from xml.sax.saxutils import escape
+
+from docx import Document
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, Pt, RGBColor
 
 
-CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-</Types>
-"""
+FONT_NAME = "Microsoft YaHei"
 
-RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>
-"""
+INFO_FIELDS = [
+    ("课题", "lesson_title"),
+    ("学科", "subject"),
+    ("年级", "grade"),
+    ("课时", "class_hour"),
+]
 
-DOCUMENT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>
-"""
-
-STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
-    <w:name w:val="Normal"/>
-    <w:qFormat/>
-    <w:pPr/>
-    <w:rPr>
-      <w:rFonts w:ascii="Microsoft YaHei" w:eastAsia="Microsoft YaHei" w:hAnsi="Microsoft YaHei"/>
-      <w:sz w:val="22"/>
-    </w:rPr>
-  </w:style>
-</w:styles>
-"""
+SECTION_FIELDS = [
+    ("教学目标", "teaching_goals"),
+    ("教学重点", "key_points"),
+    ("教学难点", "difficult_points"),
+    ("教学准备", "teaching_preparation"),
+    ("教学过程", "teaching_process"),
+    ("板书设计", "blackboard_design"),
+    ("作业设计", "homework"),
+    ("教学反思", "reflection"),
+]
 
 
-def _paragraph(text: str, bold: bool = False) -> str:
-    bold_xml = "<w:b/>" if bold else ""
-    return (
-        "<w:p><w:r><w:rPr>"
-        f"{bold_xml}"
-        '<w:rFonts w:ascii="Microsoft YaHei" w:eastAsia="Microsoft YaHei" w:hAnsi="Microsoft YaHei"/>'
-        "</w:rPr>"
-        f"<w:t>{escape(text)}</w:t>"
-        "</w:r></w:p>"
-    )
+def _placeholder(name: str) -> str:
+    return "{{" + name + "}}"
 
 
-def _cell(text: str, width: str = "4500", bold: bool = False) -> str:
-    return (
-        f'<w:tc><w:tcPr><w:tcW w:w="{width}" w:type="dxa"/></w:tcPr>'
-        f"{_paragraph(text, bold=bold)}"
-        "</w:tc>"
-    )
+def _set_run_font(run) -> None:
+    run.font.name = FONT_NAME
+    rpr = run._element.get_or_add_rPr()
+    rfonts = rpr.rFonts
+    if rfonts is None:
+        rfonts = OxmlElement("w:rFonts")
+        rpr.append(rfonts)
+    for attr in ("w:ascii", "w:hAnsi", "w:eastAsia"):
+        rfonts.set(qn(attr), FONT_NAME)
 
 
-def _row(label: str, value: str) -> str:
-    return f"<w:tr>{_cell(label, '2200', True)}{_cell(value, '7200')}</w:tr>"
+def _format_run(run, *, bold: bool = False, size: float = 10.5, color: RGBColor | None = None) -> None:
+    _set_run_font(run)
+    run.bold = bold
+    run.font.size = Pt(size)
+    if color is not None:
+        run.font.color.rgb = color
 
 
-def _document_xml() -> str:
-    rows = [
-        _row("课题", "{{lesson_title}}"),
-        _row("学科", "{{subject}}"),
-        _row("年级", "{{grade}}"),
-        _row("课时", "{{class_hour}}"),
-        _row("教学目标", "{{teaching_goals}}"),
-        _row("教学重点", "{{key_points}}"),
-        _row("教学难点", "{{difficult_points}}"),
-        _row("教学准备", "{{teaching_preparation}}"),
-        _row("教学过程", "{{teaching_process}}"),
-        _row("板书设计", "{{blackboard_design}}"),
-        _row("作业设计", "{{homework}}"),
-        _row("教学反思", "{{reflection}}"),
+def _set_style_font(document: Document) -> None:
+    normal = document.styles["Normal"]
+    normal.font.name = FONT_NAME
+    normal.font.size = Pt(10.5)
+    rpr = normal._element.get_or_add_rPr()
+    rfonts = rpr.rFonts
+    if rfonts is None:
+        rfonts = OxmlElement("w:rFonts")
+        rpr.append(rfonts)
+    for attr in ("w:ascii", "w:hAnsi", "w:eastAsia"):
+        rfonts.set(qn(attr), FONT_NAME)
+
+
+def _set_cell_shading(cell, fill: str) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shading = tc_pr.find(qn("w:shd"))
+    if shading is None:
+        shading = OxmlElement("w:shd")
+        tc_pr.append(shading)
+    shading.set(qn("w:fill"), fill)
+
+
+def _write_cell(cell, text: str, *, bold: bool = False, fill: str | None = None) -> None:
+    cell.text = ""
+    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    if fill:
+        _set_cell_shading(cell, fill)
+    paragraph = cell.paragraphs[0]
+    paragraph.paragraph_format.space_after = Pt(0)
+    run = paragraph.add_run(text)
+    _format_run(run, bold=bold, size=10.5)
+
+
+def _add_title(document: Document) -> None:
+    title = document.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.paragraph_format.space_after = Pt(14)
+    run = title.add_run("标准教案模板")
+    _format_run(run, bold=True, size=18, color=RGBColor(17, 24, 39))
+
+
+def _add_info_table(document: Document) -> None:
+    table = document.add_table(rows=2, cols=4)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.style = "Table Grid"
+    table.autofit = True
+
+    pairs = [
+        INFO_FIELDS[0],
+        INFO_FIELDS[1],
+        INFO_FIELDS[2],
+        INFO_FIELDS[3],
     ]
-    table = (
-        "<w:tbl>"
-        "<w:tblPr><w:tblW w:w=\"9500\" w:type=\"dxa\"/>"
-        "<w:tblBorders>"
-        "<w:top w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"666666\"/>"
-        "<w:left w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"666666\"/>"
-        "<w:bottom w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"666666\"/>"
-        "<w:right w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"666666\"/>"
-        "<w:insideH w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"666666\"/>"
-        "<w:insideV w:val=\"single\" w:sz=\"4\" w:space=\"0\" w:color=\"666666\"/>"
-        "</w:tblBorders></w:tblPr>"
-        + "".join(rows)
-        + "</w:tbl>"
-    )
-    return (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        "<w:body>"
-        + _paragraph("标准教案模板", bold=True)
-        + table
-        + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>'
-        + "</w:body></w:document>"
-    )
+    rows = [
+        [pairs[0][0], _placeholder(pairs[0][1]), pairs[1][0], _placeholder(pairs[1][1])],
+        [pairs[2][0], _placeholder(pairs[2][1]), pairs[3][0], _placeholder(pairs[3][1])],
+    ]
+
+    for row_index, row_values in enumerate(rows):
+        row = table.rows[row_index]
+        for cell_index, value in enumerate(row_values):
+            is_label = cell_index % 2 == 0
+            _write_cell(cell=row.cells[cell_index], text=value, bold=is_label, fill="EAF2FF" if is_label else None)
+
+    spacer = document.add_paragraph()
+    spacer.paragraph_format.space_after = Pt(4)
+
+
+def _add_section(document: Document, label: str, field: str) -> None:
+    heading = document.add_paragraph()
+    heading.paragraph_format.space_before = Pt(10)
+    heading.paragraph_format.space_after = Pt(3)
+    run = heading.add_run(label)
+    _format_run(run, bold=True, size=12, color=RGBColor(31, 94, 220))
+
+    body = document.add_paragraph()
+    body.paragraph_format.line_spacing = 1.35
+    body.paragraph_format.space_after = Pt(6)
+    body.paragraph_format.left_indent = Inches(0.08)
+    run = body.add_run(_placeholder(field))
+    _format_run(run, size=10.5, color=RGBColor(17, 24, 39))
 
 
 def create_sample_template(output_path: str | Path) -> Path:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with ZipFile(output_path, "w", ZIP_DEFLATED) as docx:
-        docx.writestr("[Content_Types].xml", CONTENT_TYPES)
-        docx.writestr("_rels/.rels", RELS)
-        docx.writestr("word/_rels/document.xml.rels", DOCUMENT_RELS)
-        docx.writestr("word/styles.xml", STYLES)
-        docx.writestr("word/document.xml", _document_xml())
+    document = Document()
+    _set_style_font(document)
+    section = document.sections[0]
+    section.top_margin = Inches(0.72)
+    section.bottom_margin = Inches(0.72)
+    section.left_margin = Inches(0.78)
+    section.right_margin = Inches(0.78)
 
+    document.core_properties.title = "标准教案模板"
+    _add_title(document)
+    _add_info_table(document)
+    for label, field in SECTION_FIELDS:
+        _add_section(document, label, field)
+
+    document.save(str(output_path))
     return output_path

@@ -42,6 +42,7 @@ const previewOrder = [
 
 let currentFields = null;
 let currentTemplateId = null;
+let currentDownloadUrl = "#";
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
@@ -53,6 +54,27 @@ function setBusy(isBusy) {
   sampleButton.disabled = isBusy;
   exportButton.disabled = isBusy || !currentFields;
   generateButton.querySelector("span:last-child").textContent = isBusy ? "生成中" : "生成内容";
+}
+
+function setDownloadReady(url, outputName) {
+  currentDownloadUrl = url;
+  fileName.textContent = outputName;
+  downloadLink.href = url;
+  downloadLink.classList.remove("is-disabled");
+  downloadLink.setAttribute("aria-disabled", "false");
+}
+
+function setDownloadStale(message = "未导出") {
+  currentDownloadUrl = "#";
+  fileName.textContent = message;
+  downloadLink.href = "#";
+  downloadLink.classList.add("is-disabled");
+  downloadLink.setAttribute("aria-disabled", "true");
+}
+
+function refreshResultTitle(fields) {
+  if (!fields) return;
+  resultTitle.textContent = `${fields.grade || ""}${fields.subject || ""}：${fields.lesson_title || ""}`;
 }
 
 function renderPreview(fields) {
@@ -89,6 +111,18 @@ function collectEditedFields() {
   return fields;
 }
 
+function markEditedContent() {
+  if (!currentFields) return;
+  const hadDownload = currentDownloadUrl !== "#";
+  currentFields = collectEditedFields();
+  refreshResultTitle(currentFields);
+  setDownloadStale(hadDownload ? "内容已修改，需重新导出" : "未导出");
+  exportButton.disabled = false;
+  if (hadDownload) {
+    setStatus("内容已修改，请重新导出 Word");
+  }
+}
+
 async function loadSampleMaterial() {
   setStatus("正在载入示例材料");
   const response = await fetch("/api/sample-material");
@@ -113,10 +147,7 @@ form.addEventListener("submit", async (event) => {
   currentFields = null;
   currentTemplateId = null;
   exportButton.disabled = true;
-  downloadLink.classList.add("is-disabled");
-  downloadLink.setAttribute("aria-disabled", "true");
-  downloadLink.href = "#";
-  fileName.textContent = "未导出";
+  setDownloadStale("未导出");
 
   try {
     const formData = new FormData(form);
@@ -132,7 +163,7 @@ form.addEventListener("submit", async (event) => {
 
     currentFields = data.fields;
     currentTemplateId = data.template_id;
-    resultTitle.textContent = `${data.fields.grade}${data.fields.subject}：${data.fields.lesson_title}`;
+    refreshResultTitle(data.fields);
     fieldCount.textContent = String(data.template_fields.length);
     renderPreview(data.fields);
     exportButton.disabled = false;
@@ -151,7 +182,7 @@ exportButton.addEventListener("click", async () => {
   }
 
   exportButton.disabled = true;
-  setStatus("正在导出 Word");
+  setStatus("正在生成 Word");
 
   try {
     const editedFields = collectEditedFields();
@@ -172,15 +203,26 @@ exportButton.addEventListener("click", async () => {
     }
 
     currentFields = editedFields;
-    fileName.textContent = data.output_name;
-    downloadLink.href = data.download_url;
-    downloadLink.classList.remove("is-disabled");
-    downloadLink.setAttribute("aria-disabled", "false");
-    setStatus("Word 已导出");
+    refreshResultTitle(currentFields);
+    setDownloadReady(data.download_url, data.output_name);
+    setStatus("最新 Word 已生成");
   } catch (error) {
     setStatus(error.message || "导出失败", true);
   } finally {
     exportButton.disabled = false;
+  }
+});
+
+previewList.addEventListener("input", (event) => {
+  if (event.target?.dataset?.field) {
+    markEditedContent();
+  }
+});
+
+downloadLink.addEventListener("click", (event) => {
+  if (downloadLink.classList.contains("is-disabled")) {
+    event.preventDefault();
+    setStatus(currentFields ? "请先导出最新 Word" : "请先生成内容", true);
   }
 });
 

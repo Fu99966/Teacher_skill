@@ -248,7 +248,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             *_json_bytes(
                 {
                     "output_name": output_name,
-                    "download_url": f"/download/{output_name}",
+                    "download_url": f"/download/{quote(output_name)}",
                 }
             )
         )
@@ -268,7 +268,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                     "fields": lesson.to_dict(),
                     "template_fields": template_fields,
                     "output_name": output_name,
-                    "download_url": f"/download/{output_name}",
+                    "download_url": f"/download/{quote(output_name)}",
                 }
             )
         )

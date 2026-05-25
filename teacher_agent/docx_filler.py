@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -8,14 +9,26 @@ from docx import Document
 from .template_parser import PLACEHOLDER_PATTERN, iter_paragraphs
 
 
-def _placeholder(name: str) -> str:
-    return "{{" + name + "}}"
+def _docx_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.replace("\r\n", "\n").replace("\r", "\n")
+    if isinstance(value, (list, tuple)):
+        return "\n".join(_docx_text(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    return str(value)
 
 
-def _replace_run_text(text: str, data: dict[str, Any]) -> str:
-    for key, value in data.items():
-        text = text.replace(_placeholder(key), str(value))
-    return text
+def _replace_placeholders(text: str, data: dict[str, Any]) -> str:
+    def replace(match) -> str:
+        key = match.group(1).strip()
+        if key not in data:
+            return match.group(0)
+        return _docx_text(data[key])
+
+    return PLACEHOLDER_PATTERN.sub(replace, text)
 
 
 def _replace_paragraph(paragraph, data: dict[str, Any]) -> None:
@@ -28,18 +41,18 @@ def _replace_paragraph(paragraph, data: dict[str, Any]) -> None:
 
     changed_single_run = False
     for run in paragraph.runs:
-        if "{{" in run.text and "}}" in run.text:
-            new_text = _replace_run_text(run.text, data)
+        if PLACEHOLDER_PATTERN.search(run.text):
+            new_text = _replace_placeholders(run.text, data)
             if new_text != run.text:
                 run.text = new_text
                 changed_single_run = True
 
     if changed_single_run:
-        return
+        full_text = "".join(run.text for run in paragraph.runs)
+        if not PLACEHOLDER_PATTERN.search(full_text):
+            return
 
-    replaced = full_text
-    for key, value in data.items():
-        replaced = replaced.replace(_placeholder(key), str(value))
+    replaced = _replace_placeholders(full_text, data)
 
     if replaced == full_text or not paragraph.runs:
         return
