@@ -9,15 +9,26 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Teacher Agent Skills</p>
-          <h1>教师文档智能体</h1>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <p class="eyebrow">Teacher_skill</p>
+            <h1>教师文档智能体</h1>
+          </div>
         </div>
-        <a class="ghost-link" href="/download/sample-template">下载示例模板</a>
+        <a class="glass-button ghost-link" href="/download/sample-template">
+          <span class="button-icon" aria-hidden="true">↓</span>
+          <span>示例模板</span>
+        </a>
       </header>
 
       <main class="workspace">
-        <section class="panel input-panel" aria-label="教案输入">
+        <section class="glass-panel input-panel" aria-label="教案输入">
+          <div class="panel-head">
+            <p class="eyebrow">Lesson Studio</p>
+            <h2>课程信息</h2>
+          </div>
+
           <form id="lesson-form">
             <div class="field-grid">
               <label>
@@ -38,7 +49,7 @@
               </label>
             </div>
 
-            <label class="wide-label">
+            <label class="wide-label file-drop">
               <span>Word 模板</span>
               <input id="template-input" name="template" type="file" accept=".docx" />
             </label>
@@ -49,25 +60,37 @@
             </label>
 
             <div class="actions">
-              <button type="button" class="secondary" id="sample-button">填入示例材料</button>
-              <button type="submit" id="generate-button">生成内容</button>
+              <button type="button" class="glass-button secondary" id="sample-button">
+                <span class="button-icon" aria-hidden="true">＋</span>
+                <span>示例材料</span>
+              </button>
+              <button type="submit" class="glass-button primary" id="generate-button">
+                <span class="button-icon" aria-hidden="true">✦</span>
+                <span>生成内容</span>
+              </button>
             </div>
           </form>
         </section>
 
-        <section class="panel output-panel" aria-label="生成结果">
+        <section class="glass-panel output-panel" aria-label="生成结果">
           <div class="result-head">
-            <div>
-              <p class="eyebrow">生成结果</p>
+            <div class="panel-head">
+              <p class="eyebrow">Review</p>
               <h2 id="result-title">等待生成</h2>
             </div>
             <div class="result-actions">
-              <button type="button" class="export-button" id="export-button" disabled>导出 Word</button>
-              <a id="download-link" class="download-link is-disabled" href="#" aria-disabled="true">下载 Word</a>
+              <button type="button" class="glass-button export-button" id="export-button" disabled>
+                <span class="button-icon" aria-hidden="true">↗</span>
+                <span>导出 Word</span>
+              </button>
+              <a id="download-link" class="glass-button download-link is-disabled" href="#" aria-disabled="true">
+                <span class="button-icon" aria-hidden="true">↓</span>
+                <span>下载 Word</span>
+              </a>
             </div>
           </div>
 
-          <div id="status" class="status">请填写课程信息，选择模板后生成内容；确认无误后再导出 Word。</div>
+          <div id="status" class="status" aria-live="polite">待生成</div>
 
           <div class="summary-grid" id="summary-grid">
             <div>
@@ -76,7 +99,7 @@
             </div>
             <div>
               <span>输出文件</span>
-              <strong id="file-name">未生成</strong>
+              <strong id="file-name">未导出</strong>
             </div>
           </div>
 

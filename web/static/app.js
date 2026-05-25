@@ -52,7 +52,7 @@ function setBusy(isBusy) {
   generateButton.disabled = isBusy;
   sampleButton.disabled = isBusy;
   exportButton.disabled = isBusy || !currentFields;
-  generateButton.textContent = isBusy ? "生成中" : "生成内容";
+  generateButton.querySelector("span:last-child").textContent = isBusy ? "生成中" : "生成内容";
 }
 
 function renderPreview(fields) {
@@ -90,25 +90,25 @@ function collectEditedFields() {
 }
 
 async function loadSampleMaterial() {
-  setStatus("正在载入示例材料。");
+  setStatus("正在载入示例材料");
   const response = await fetch("/api/sample-material");
   if (!response.ok) {
-    setStatus("示例材料载入失败。", true);
+    setStatus("示例材料载入失败", true);
     return;
   }
   const data = await response.json();
   materialInput.value = data.material;
-  setStatus("示例材料已填入。");
+  setStatus("示例材料已填入");
 }
 
 sampleButton.addEventListener("click", () => {
-  loadSampleMaterial().catch(() => setStatus("示例材料载入失败。", true));
+  loadSampleMaterial().catch(() => setStatus("示例材料载入失败", true));
 });
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   setBusy(true);
-  setStatus("正在生成教案内容。");
+  setStatus("正在生成教案内容");
 
   currentFields = null;
   currentTemplateId = null;
@@ -136,9 +136,9 @@ form.addEventListener("submit", async (event) => {
     fieldCount.textContent = String(data.template_fields.length);
     renderPreview(data.fields);
     exportButton.disabled = false;
-    setStatus("内容已生成，可以直接修改右侧各栏。确认后点击“导出 Word”。");
+    setStatus("内容已生成");
   } catch (error) {
-    setStatus(error.message || "生成失败。", true);
+    setStatus(error.message || "生成失败", true);
   } finally {
     setBusy(false);
   }
@@ -146,12 +146,12 @@ form.addEventListener("submit", async (event) => {
 
 exportButton.addEventListener("click", async () => {
   if (!currentFields || !currentTemplateId) {
-    setStatus("请先生成内容。", true);
+    setStatus("请先生成内容", true);
     return;
   }
 
   exportButton.disabled = true;
-  setStatus("正在按模板导出 Word。");
+  setStatus("正在导出 Word");
 
   try {
     const editedFields = collectEditedFields();
@@ -176,9 +176,9 @@ exportButton.addEventListener("click", async () => {
     downloadLink.href = data.download_url;
     downloadLink.classList.remove("is-disabled");
     downloadLink.setAttribute("aria-disabled", "false");
-    setStatus("Word 已导出，可以下载。");
+    setStatus("Word 已导出");
   } catch (error) {
-    setStatus(error.message || "导出失败。", true);
+    setStatus(error.message || "导出失败", true);
   } finally {
     exportButton.disabled = false;
   }
