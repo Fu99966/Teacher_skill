@@ -196,6 +196,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             fp=self.rfile,
             headers=self.headers,
             environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": content_type},
+            encoding="utf-8",
+            errors="replace",
         )
 
         subject = _form_value(form, "subject", "语文")
