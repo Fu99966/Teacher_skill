@@ -44,6 +44,24 @@ def _form_value(form: cgi.FieldStorage, name: str, default: str = "") -> str:
     return str(value)
 
 
+def _template_id_for(path: Path) -> str:
+    if path == SAMPLE_TEMPLATE:
+        return "__sample__"
+    return path.name
+
+
+def _template_from_id(template_id: str) -> Path:
+    if template_id == "__sample__":
+        if not SAMPLE_TEMPLATE.exists():
+            create_sample_template(SAMPLE_TEMPLATE)
+        return SAMPLE_TEMPLATE
+
+    path = (UPLOAD_DIR / Path(template_id).name).resolve()
+    if UPLOAD_DIR.resolve() not in path.parents or not path.exists():
+        raise ValueError("模板已失效，请重新上传模板")
+    return path
+
+
 class TeacherAgentHandler(BaseHTTPRequestHandler):
     server_version = "TeacherAgentWeb/0.1"
 
@@ -146,6 +164,20 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/draft":
+            try:
+                self._handle_draft()
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        if parsed.path == "/api/export":
+            try:
+                self._handle_export()
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
         if parsed.path != "/api/generate":
             self._send(*_json_bytes({"error": "接口不存在"}, HTTPStatus.NOT_FOUND))
             return
@@ -155,11 +187,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
 
-    def _handle_generate(self) -> None:
+    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, Path, list[str]]:
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
-            self._send(*_json_bytes({"error": "请使用表单提交"}, HTTPStatus.BAD_REQUEST))
-            return
+            raise ValueError("请使用表单提交")
 
         form = cgi.FieldStorage(
             fp=self.rfile,
@@ -175,6 +206,53 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         template_path = self._save_template(form)
         template_fields = scan_template(template_path)
+        return form, subject, grade, title, class_hour, material, template_path, template_fields
+
+    def _handle_draft(self) -> None:
+        _, subject, grade, title, class_hour, material, template_path, template_fields = self._read_lesson_form()
+        lesson = draft_lesson_fields(subject, grade, title, material, class_hour)
+
+        self._send(
+            *_json_bytes(
+                {
+                    "fields": lesson.to_dict(),
+                    "template_fields": template_fields,
+                    "template_id": _template_id_for(template_path),
+                }
+            )
+        )
+
+    def _handle_export(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0") or "0")
+        payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+
+        fields = payload.get("fields")
+        template_id = payload.get("template_id")
+        if not isinstance(fields, dict):
+            raise ValueError("缺少教案字段")
+        if not isinstance(template_id, str):
+            raise ValueError("缺少模板信息")
+
+        template_path = _template_from_id(template_id)
+        title = str(fields.get("lesson_title") or "教案")
+        grade = str(fields.get("grade") or "年级")
+        subject = str(fields.get("subject") or "学科")
+        safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")
+        output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
+        output_path = OUTPUT_DIR / output_name
+        fill_docx_template(template_path, fields, output_path)
+
+        self._send(
+            *_json_bytes(
+                {
+                    "output_name": output_name,
+                    "download_url": f"/download/{output_name}",
+                }
+            )
+        )
+
+    def _handle_generate(self) -> None:
+        _, subject, grade, title, class_hour, material, template_path, template_fields = self._read_lesson_form()
 
         lesson = draft_lesson_fields(subject, grade, title, material, class_hour)
         safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")

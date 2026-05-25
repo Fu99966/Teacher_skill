@@ -8,3 +8,4 @@ outputs/uploads/
 outputs/web-server*.log
 outputs/web-server.pid
 outputs/*-教案-*.docx
+outputs/*-test.json

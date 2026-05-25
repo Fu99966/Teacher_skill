@@ -50,7 +50,7 @@
 
             <div class="actions">
               <button type="button" class="secondary" id="sample-button">填入示例材料</button>
-              <button type="submit" id="generate-button">生成教案</button>
+              <button type="submit" id="generate-button">生成内容</button>
             </div>
           </form>
         </section>
@@ -61,10 +61,13 @@
               <p class="eyebrow">生成结果</p>
               <h2 id="result-title">等待生成</h2>
             </div>
-            <a id="download-link" class="download-link is-disabled" href="#" aria-disabled="true">下载 Word</a>
+            <div class="result-actions">
+              <button type="button" class="export-button" id="export-button" disabled>导出 Word</button>
+              <a id="download-link" class="download-link is-disabled" href="#" aria-disabled="true">下载 Word</a>
+            </div>
           </div>
 
-          <div id="status" class="status">请填写课程信息，选择模板后生成。</div>
+          <div id="status" class="status">请填写课程信息，选择模板后生成内容；确认无误后再导出 Word。</div>
 
           <div class="summary-grid" id="summary-grid">
             <div>

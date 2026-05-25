@@ -75,6 +75,7 @@ h2 {
 
 .ghost-link,
 .download-link,
+.export-button,
 button {
   min-height: 42px;
   display: inline-flex;
@@ -93,6 +94,7 @@ button {
 
 .ghost-link:hover,
 .download-link:hover,
+.export-button:hover,
 button:hover {
   transform: translateY(-1px);
   border-color: rgba(56, 111, 85, 0.6);
@@ -196,7 +198,8 @@ button.secondary {
   color: var(--blue);
 }
 
-button:disabled {
+button:disabled,
+.export-button:disabled {
   cursor: wait;
   opacity: 0.66;
   transform: none;
@@ -213,6 +216,21 @@ button:disabled {
   background: var(--blue);
   border-color: var(--blue);
   color: #fff;
+  white-space: nowrap;
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.export-button {
+  background: var(--green);
+  color: #fffdf8;
+  border-color: var(--green);
   white-space: nowrap;
 }
 
@@ -298,6 +316,19 @@ button:disabled {
   line-height: 1.7;
 }
 
+.field-editor {
+  width: 100%;
+  min-height: 92px;
+  padding: 10px 11px;
+  line-height: 1.65;
+  border-radius: 8px;
+  background: #fffaf1;
+}
+
+.field-editor.compact {
+  min-height: 42px;
+}
+
 @media (max-width: 940px) {
   .app-shell {
     width: min(100% - 20px, 760px);
@@ -340,6 +371,7 @@ button:disabled {
 
   .ghost-link,
   .download-link,
+  .export-button,
   button {
     width: 100%;
   }

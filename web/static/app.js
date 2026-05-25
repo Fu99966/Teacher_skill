@@ -5,6 +5,7 @@ const generateButton = document.querySelector("#generate-button");
 const statusBox = document.querySelector("#status");
 const resultTitle = document.querySelector("#result-title");
 const downloadLink = document.querySelector("#download-link");
+const exportButton = document.querySelector("#export-button");
 const fieldCount = document.querySelector("#field-count");
 const fileName = document.querySelector("#file-name");
 const previewList = document.querySelector("#preview-list");
@@ -25,14 +26,22 @@ const fieldLabels = {
 };
 
 const previewOrder = [
+  "lesson_title",
+  "subject",
+  "grade",
+  "class_hour",
   "teaching_goals",
   "key_points",
   "difficult_points",
+  "teaching_preparation",
   "teaching_process",
   "blackboard_design",
   "homework",
   "reflection",
 ];
+
+let currentFields = null;
+let currentTemplateId = null;
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
@@ -42,7 +51,8 @@ function setStatus(message, isError = false) {
 function setBusy(isBusy) {
   generateButton.disabled = isBusy;
   sampleButton.disabled = isBusy;
-  generateButton.textContent = isBusy ? "生成中" : "生成教案";
+  exportButton.disabled = isBusy || !currentFields;
+  generateButton.textContent = isBusy ? "生成中" : "生成内容";
 }
 
 function renderPreview(fields) {
@@ -55,12 +65,28 @@ function renderPreview(fields) {
     const title = document.createElement("h3");
     title.textContent = fieldLabels[key] || key;
 
-    const body = document.createElement("pre");
-    body.textContent = fields[key];
+    const body = document.createElement("textarea");
+    body.className = "field-editor";
+    body.dataset.field = key;
+    body.value = fields[key];
+    if (["lesson_title", "subject", "grade", "class_hour"].includes(key)) {
+      body.classList.add("compact");
+      body.rows = 1;
+    } else {
+      body.rows = Math.min(10, Math.max(3, String(fields[key]).split("\n").length + 1));
+    }
 
     item.append(title, body);
     previewList.appendChild(item);
   });
+}
+
+function collectEditedFields() {
+  const fields = { ...(currentFields || {}) };
+  document.querySelectorAll("[data-field]").forEach((node) => {
+    fields[node.dataset.field] = node.value;
+  });
+  return fields;
 }
 
 async function loadSampleMaterial() {
@@ -82,15 +108,19 @@ sampleButton.addEventListener("click", () => {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   setBusy(true);
-  setStatus("正在生成教案并填充 Word 模板。");
+  setStatus("正在生成教案内容。");
 
+  currentFields = null;
+  currentTemplateId = null;
+  exportButton.disabled = true;
   downloadLink.classList.add("is-disabled");
   downloadLink.setAttribute("aria-disabled", "true");
   downloadLink.href = "#";
+  fileName.textContent = "未导出";
 
   try {
     const formData = new FormData(form);
-    const response = await fetch("/api/generate", {
+    const response = await fetch("/api/draft", {
       method: "POST",
       body: formData,
     });
@@ -100,18 +130,57 @@ form.addEventListener("submit", async (event) => {
       throw new Error(data.error || "生成失败");
     }
 
+    currentFields = data.fields;
+    currentTemplateId = data.template_id;
     resultTitle.textContent = `${data.fields.grade}${data.fields.subject}：${data.fields.lesson_title}`;
     fieldCount.textContent = String(data.template_fields.length);
-    fileName.textContent = data.output_name;
-    downloadLink.href = data.download_url;
-    downloadLink.classList.remove("is-disabled");
-    downloadLink.setAttribute("aria-disabled", "false");
     renderPreview(data.fields);
-    setStatus("已生成 Word 教案。");
+    exportButton.disabled = false;
+    setStatus("内容已生成，可以直接修改右侧各栏。确认后点击“导出 Word”。");
   } catch (error) {
     setStatus(error.message || "生成失败。", true);
   } finally {
     setBusy(false);
+  }
+});
+
+exportButton.addEventListener("click", async () => {
+  if (!currentFields || !currentTemplateId) {
+    setStatus("请先生成内容。", true);
+    return;
+  }
+
+  exportButton.disabled = true;
+  setStatus("正在按模板导出 Word。");
+
+  try {
+    const editedFields = collectEditedFields();
+    const response = await fetch("/api/export", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        template_id: currentTemplateId,
+        fields: editedFields,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "导出失败");
+    }
+
+    currentFields = editedFields;
+    fileName.textContent = data.output_name;
+    downloadLink.href = data.download_url;
+    downloadLink.classList.remove("is-disabled");
+    downloadLink.setAttribute("aria-disabled", "false");
+    setStatus("Word 已导出，可以下载。");
+  } catch (error) {
+    setStatus(error.message || "导出失败。", true);
+  } finally {
+    exportButton.disabled = false;
   }
 });
 
