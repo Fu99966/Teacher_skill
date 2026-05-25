@@ -22,14 +22,14 @@ def cmd_scan_template(args: argparse.Namespace) -> None:
 def cmd_fill_template(args: argparse.Namespace) -> None:
     data = json.loads(Path(args.data).read_text(encoding="utf-8"))
     output = fill_docx_template(args.template, data, args.output)
-    print(f"已生成：{output}")
+    print(f"Created: {output}")
 
 
 def cmd_draft_lesson(args: argparse.Namespace) -> None:
     material = _read_text(args.material_file)
     fields = draft_lesson_fields(args.subject, args.grade, args.title, material, args.class_hour)
     output = write_lesson_json(fields, args.output)
-    print(f"已生成教案字段：{output}")
+    print(f"Created lesson fields: {output}")
 
 
 def cmd_prompt(args: argparse.Namespace) -> None:
@@ -40,24 +40,30 @@ def cmd_prompt(args: argparse.Namespace) -> None:
 
 def cmd_create_sample_template(args: argparse.Namespace) -> None:
     output = create_sample_template(args.output)
-    print(f"已生成示例模板：{output}")
+    print(f"Created sample template: {output}")
+
+
+def cmd_web(args: argparse.Namespace) -> None:
+    from .web_app import run
+
+    run(args.host, args.port)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="教师文档智能体工具")
+    parser = argparse.ArgumentParser(description="Teacher document agent tools")
     subparsers = parser.add_subparsers(required=True)
 
-    scan = subparsers.add_parser("scan-template", help="扫描 docx 模板中的占位符")
+    scan = subparsers.add_parser("scan-template", help="scan placeholders in a docx template")
     scan.add_argument("template")
     scan.set_defaults(func=cmd_scan_template)
 
-    fill = subparsers.add_parser("fill-template", help="用 JSON 数据填充 docx 模板")
+    fill = subparsers.add_parser("fill-template", help="fill a docx template with JSON data")
     fill.add_argument("--template", required=True)
     fill.add_argument("--data", required=True)
     fill.add_argument("--output", required=True)
     fill.set_defaults(func=cmd_fill_template)
 
-    draft = subparsers.add_parser("draft-lesson", help="生成一份教案字段 JSON 草稿")
+    draft = subparsers.add_parser("draft-lesson", help="draft lesson fields JSON")
     draft.add_argument("--subject", required=True)
     draft.add_argument("--grade", required=True)
     draft.add_argument("--title", required=True)
@@ -66,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     draft.add_argument("--output", required=True)
     draft.set_defaults(func=cmd_draft_lesson)
 
-    prompt = subparsers.add_parser("lesson-prompt", help="生成可发给大模型的教案 JSON 提示词")
+    prompt = subparsers.add_parser("lesson-prompt", help="print an LLM prompt for lesson JSON")
     prompt.add_argument("--subject", required=True)
     prompt.add_argument("--grade", required=True)
     prompt.add_argument("--title", required=True)
@@ -74,9 +80,14 @@ def build_parser() -> argparse.ArgumentParser:
     prompt.add_argument("--class-hour", default="1课时")
     prompt.set_defaults(func=cmd_prompt)
 
-    sample = subparsers.add_parser("create-sample-template", help="生成一个带占位符的示例 docx 教案模板")
+    sample = subparsers.add_parser("create-sample-template", help="create a sample placeholder docx")
     sample.add_argument("--output", required=True)
     sample.set_defaults(func=cmd_create_sample_template)
+
+    web = subparsers.add_parser("web", help="start the teacher web app")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8765)
+    web.set_defaults(func=cmd_web)
 
     return parser
 

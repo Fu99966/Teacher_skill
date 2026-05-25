@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>教师文档智能体</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Teacher Agent Skills</p>
+          <h1>教师文档智能体</h1>
+        </div>
+        <a class="ghost-link" href="/download/sample-template">下载示例模板</a>
+      </header>
+
+      <main class="workspace">
+        <section class="panel input-panel" aria-label="教案输入">
+          <form id="lesson-form">
+            <div class="field-grid">
+              <label>
+                <span>学科</span>
+                <input name="subject" value="语文" autocomplete="off" />
+              </label>
+              <label>
+                <span>年级</span>
+                <input name="grade" value="四年级" autocomplete="off" />
+              </label>
+              <label>
+                <span>课题</span>
+                <input name="title" value="观潮" autocomplete="off" />
+              </label>
+              <label>
+                <span>课时</span>
+                <input name="class_hour" value="1课时" autocomplete="off" />
+              </label>
+            </div>
+
+            <label class="wide-label">
+              <span>Word 模板</span>
+              <input id="template-input" name="template" type="file" accept=".docx" />
+            </label>
+
+            <label class="wide-label">
+              <span>教材内容</span>
+              <textarea name="material" id="material" rows="14"></textarea>
+            </label>
+
+            <div class="actions">
+              <button type="button" class="secondary" id="sample-button">填入示例材料</button>
+              <button type="submit" id="generate-button">生成教案</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel output-panel" aria-label="生成结果">
+          <div class="result-head">
+            <div>
+              <p class="eyebrow">生成结果</p>
+              <h2 id="result-title">等待生成</h2>
+            </div>
+            <a id="download-link" class="download-link is-disabled" href="#" aria-disabled="true">下载 Word</a>
+          </div>
+
+          <div id="status" class="status">请填写课程信息，选择模板后生成。</div>
+
+          <div class="summary-grid" id="summary-grid">
+            <div>
+              <span>模板字段</span>
+              <strong id="field-count">0</strong>
+            </div>
+            <div>
+              <span>输出文件</span>
+              <strong id="file-name">未生成</strong>
+            </div>
+          </div>
+
+          <div class="preview-list" id="preview-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

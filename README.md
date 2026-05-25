@@ -43,6 +43,18 @@ teacher-agent-skills/
 pip install -r requirements.txt
 ```
 
+启动网页：
+
+```powershell
+python -m teacher_agent.cli web
+```
+
+然后打开：
+
+```text
+http://127.0.0.1:8765
+```
+
 扫描 Word 模板里的占位符：
 
 ```powershell
