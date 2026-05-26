@@ -221,6 +221,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/agent-run":
             try:
                 self._handle_agent_run()
+            except ValueError as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
             except Exception as exc:
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return

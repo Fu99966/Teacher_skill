@@ -1,6 +1,8 @@
 const form = document.querySelector("#lesson-form");
 const generateButton = document.querySelector("#generate-button");
 const agentRunButton = document.querySelector("#agent-run-button");
+const agentRequestInput = document.querySelector("#agent-request");
+const templateInput = document.querySelector("#template-input");
 const statusBox = document.querySelector("#status");
 const resultTitle = document.querySelector("#result-title");
 const downloadLink = document.querySelector("#download-link");
@@ -85,6 +87,24 @@ let currentEvaluationReport = null;
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
   statusBox.classList.toggle("error", isError);
+}
+
+function focusStatus() {
+  statusBox.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function validateAgentInputs() {
+  if (!agentRequestInput.value.trim()) {
+    setStatus("请先输入 Agent 指令", true);
+    agentRequestInput.focus();
+    return false;
+  }
+  if (!templateInput.files || templateInput.files.length === 0) {
+    setStatus("请先上传学校 Word 模板，然后再点击 Agent 执行", true);
+    templateInput.focus();
+    return false;
+  }
+  return true;
 }
 
 function setBusy(isBusy) {
@@ -478,6 +498,10 @@ form.addEventListener("submit", async (event) => {
 });
 
 agentRunButton.addEventListener("click", async () => {
+  if (!validateAgentInputs()) {
+    return;
+  }
+
   setBusy(true);
   setStatus("Agent 正在理解任务并制定执行计划");
 
@@ -540,6 +564,7 @@ agentRunButton.addEventListener("click", async () => {
     setStatus(data.evaluation_report?.passed ? "Agent 已完成任务并通过自动检查" : "Agent 已完成任务，但自动检查提示需要复核");
   } catch (error) {
     setStatus(error.message || "Agent 执行失败", true);
+    focusStatus();
   } finally {
     setBusy(false);
   }
