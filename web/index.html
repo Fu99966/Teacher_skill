@@ -12,14 +12,10 @@
         <div class="brand">
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <p class="eyebrow">Teacher_skill</p>
+            <p class="eyebrow">Teacher_skill V4</p>
             <h1>教师文档智能体</h1>
           </div>
         </div>
-        <a class="glass-button ghost-link" href="/download/sample-template">
-          <span class="button-icon" aria-hidden="true">↓</span>
-          <span>示例模板</span>
-        </a>
       </header>
 
       <main class="workspace">
@@ -33,37 +29,69 @@
             <div class="field-grid">
               <label>
                 <span>学科</span>
-                <input name="subject" value="语文" autocomplete="off" />
+                <input name="subject" placeholder="如：语文、数学、物理" autocomplete="off" required />
               </label>
               <label>
                 <span>年级</span>
-                <input name="grade" value="四年级" autocomplete="off" />
+                <input name="grade" placeholder="如：四年级、八年级、高一" autocomplete="off" required />
               </label>
               <label>
                 <span>课题</span>
-                <input name="title" value="观潮" autocomplete="off" />
+                <input name="title" placeholder="请输入课题名称" autocomplete="off" required />
               </label>
               <label>
                 <span>课时</span>
-                <input name="class_hour" value="1课时" autocomplete="off" />
+                <input name="class_hour" value="1课时" autocomplete="off" required />
+              </label>
+              <label>
+                <span>课型</span>
+                <select name="class_type">
+                  <option value="新授课">新授课</option>
+                  <option value="复习课">复习课</option>
+                  <option value="探究/实验课">探究/实验课</option>
+                  <option value="讲评课 / 习题课">讲评课 / 习题课</option>
+                  <option value="活动课 / 拓展课">活动课 / 拓展课</option>
+                </select>
+              </label>
+              <label>
+                <span>教学法</span>
+                <select name="teaching_style">
+                  <option value="常规启发式">常规启发式</option>
+                  <option value="BOPPPS参与式教学">BOPPPS 参与式</option>
+                  <option value="5E探究模型">5E 探究模型</option>
+                  <option value="项目驱动(PBL)">项目驱动 PBL</option>
+                  <option value="游戏化教学">游戏化教学</option>
+                </select>
+              </label>
+              <label>
+                <span>学生层次</span>
+                <select name="student_level">
+                  <option value="常规混合水平">常规混合水平</option>
+                  <option value="基础薄弱 / 补弱导向">基础薄弱 / 补弱导向</option>
+                  <option value="学有余力 / 培优导向">学有余力 / 培优导向</option>
+                </select>
+              </label>
+              <label>
+                <span>生成深度</span>
+                <select name="generation_depth">
+                  <option value="标准">标准</option>
+                  <option value="精简">精简</option>
+                  <option value="深度">深度</option>
+                </select>
               </label>
             </div>
 
             <label class="wide-label file-drop">
               <span>Word 模板</span>
-              <input id="template-input" name="template" type="file" accept=".docx" />
+              <input id="template-input" name="template" type="file" accept=".docx" required />
             </label>
 
             <label class="wide-label">
               <span>教材内容</span>
-              <textarea name="material" id="material" rows="14"></textarea>
+              <textarea name="material" id="material" rows="14" placeholder="粘贴教材内容、知识点、课程标准要求或课堂任务说明" required></textarea>
             </label>
 
             <div class="actions">
-              <button type="button" class="glass-button secondary" id="sample-button">
-                <span class="button-icon" aria-hidden="true">＋</span>
-                <span>示例材料</span>
-              </button>
               <button type="submit" class="glass-button primary" id="generate-button">
                 <span class="button-icon" aria-hidden="true">✦</span>
                 <span>生成内容</span>

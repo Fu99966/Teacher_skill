@@ -1,6 +1,4 @@
 const form = document.querySelector("#lesson-form");
-const materialInput = document.querySelector("#material");
-const sampleButton = document.querySelector("#sample-button");
 const generateButton = document.querySelector("#generate-button");
 const statusBox = document.querySelector("#status");
 const resultTitle = document.querySelector("#result-title");
@@ -56,7 +54,6 @@ function setStatus(message, isError = false) {
 
 function setBusy(isBusy) {
   generateButton.disabled = isBusy;
-  sampleButton.disabled = isBusy;
   exportButton.disabled = isBusy || !currentFields;
   generateButton.querySelector("span:last-child").textContent = isBusy ? "生成中" : "生成内容";
 }
@@ -98,8 +95,41 @@ function renderPreview(fields) {
     const item = document.createElement("article");
     item.className = "preview-item";
 
+    const itemHead = document.createElement("div");
+    itemHead.className = "preview-item-head";
+
     const title = document.createElement("h3");
     title.textContent = fieldLabels[key] || key;
+
+    const controls = document.createElement("div");
+    controls.className = "field-ai-tools";
+
+    const refineMode = document.createElement("select");
+    refineMode.className = "refine-mode";
+    refineMode.dataset.refineField = key;
+    [
+      ["more_vivid", "更生动"],
+      ["deepen_inquiry", "深化探究"],
+      ["simplify", "降低难度"],
+      ["more_interaction", "增加互动"],
+      ["shorten", "精简"],
+    ].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      refineMode.appendChild(option);
+    });
+
+    const refineButton = document.createElement("button");
+    refineButton.type = "button";
+    refineButton.className = "icon-button refine-button";
+    refineButton.dataset.refineField = key;
+    refineButton.title = "局部 AI 微调";
+    refineButton.setAttribute("aria-label", `${fieldLabels[key] || key} 局部 AI 微调`);
+    refineButton.textContent = "✦";
+
+    controls.append(refineMode, refineButton);
+    itemHead.append(title, controls);
 
     const body = document.createElement("textarea");
     body.className = "field-editor";
@@ -112,9 +142,18 @@ function renderPreview(fields) {
       body.rows = Math.min(10, Math.max(3, String(fields[key]).split("\n").length + 1));
     }
 
-    item.append(title, body);
+    item.append(itemHead, body);
     previewList.appendChild(item);
   });
+}
+
+function resizeFieldEditor(editor) {
+  if (!editor) return;
+  if (editor.classList.contains("compact")) {
+    editor.rows = 1;
+    return;
+  }
+  editor.rows = Math.min(12, Math.max(3, String(editor.value).split("\n").length + 1));
 }
 
 function renderTemplateAnalysis(analysis) {
@@ -170,22 +209,6 @@ function markEditedContent() {
     setStatus("内容已修改，请重新导出 Word");
   }
 }
-
-async function loadSampleMaterial() {
-  setStatus("正在载入示例材料");
-  const response = await fetch("/api/sample-material");
-  if (!response.ok) {
-    setStatus("示例材料载入失败", true);
-    return;
-  }
-  const data = await response.json();
-  materialInput.value = data.material;
-  setStatus("示例材料已填入");
-}
-
-sampleButton.addEventListener("click", () => {
-  loadSampleMaterial().catch(() => setStatus("示例材料载入失败", true));
-});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -270,7 +293,50 @@ exportButton.addEventListener("click", async () => {
 
 previewList.addEventListener("input", (event) => {
   if (event.target?.dataset?.field) {
+    resizeFieldEditor(event.target);
     markEditedContent();
+  }
+});
+
+previewList.addEventListener("click", async (event) => {
+  const button = event.target.closest(".refine-button");
+  if (!button || !currentFields) return;
+
+  const field = button.dataset.refineField;
+  const editor = previewList.querySelector(`[data-field="${field}"]`);
+  const mode = previewList.querySelector(`[data-refine-field="${field}"].refine-mode`);
+  if (!editor) return;
+
+  button.disabled = true;
+  const oldText = button.textContent;
+  button.textContent = "…";
+  setStatus(`正在局部优化：${fieldLabels[field] || field}`);
+
+  try {
+    const response = await fetch("/api/refine-field", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        field,
+        value: editor.value,
+        action: mode?.value || "more_vivid",
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "局部优化失败");
+    }
+    editor.value = data.value;
+    resizeFieldEditor(editor);
+    markEditedContent();
+    setStatus(`${fieldLabels[field] || field} 已局部优化，请重新生成 Word`);
+  } catch (error) {
+    setStatus(error.message || "局部优化失败", true);
+  } finally {
+    button.disabled = false;
+    button.textContent = oldText;
   }
 });
 
@@ -287,5 +353,3 @@ previewLink.addEventListener("click", (event) => {
     setStatus(currentFields ? "当前环境未生成预览，请下载 Word 查看" : "请先生成内容", true);
   }
 });
-
-loadSampleMaterial().catch(() => {});

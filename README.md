@@ -2,15 +2,16 @@
 
 这是一个面向教师工作的智能体项目，设计思路参考 AgentSkills Runtime：把教师常用工作拆成多个可复用 Skill，再由 Agent 按任务调用。
 
-当前版本先聚焦一个最关键能力：
+当前版本聚焦教师备课文档的 V4 工作流：
 
 1. 根据教材内容生成教案字段。
-2. 根据年级自动识别小学、中学或大学学段，调整教学目标、课堂活动和作业深度。
-3. 让教师在网页中检查和修改每个字段。
-4. 读取 Word 模板里的 `{{field_name}}` 占位符。
-5. 如果模板没有占位符，自动识别表格中的“课题、教学目标、教学过程”等标签，把内容填入右侧单元格。
-6. 把确认后的教案字段填入模板。
-7. 尽量保留原模板的字体、表格、页眉页脚、段落样式。
+2. 通过课型、教学法、学生层次、生成深度控制生成风格，避免内容单一。
+3. 根据年级自动识别小学、中学或大学学段，调整教学目标、课堂活动和作业深度。
+4. 让教师在网页中检查和修改每个字段。
+5. 支持字段级局部 AI 微调，例如“深化探究”“降低难度”“增加互动”。
+6. 读取 Word 模板里的 `{{field_name}}` 占位符。
+7. 如果模板没有占位符，自动识别表格中的“课题、教学目标、教学过程”等标签，把内容填入右侧单元格。
+8. 把确认后的教案字段填入模板，尽量保留原模板的字体、表格、页眉页脚、段落样式。
 
 ## 项目结构
 
@@ -62,10 +63,12 @@ http://127.0.0.1:8765
 网页中按这个顺序使用：
 
 ```text
-上传 Word 模板
+上传学校 Word 模板
 填写学科、年级、课题和教材内容
+选择课型、教学法、学生层次和生成深度
 点击“生成内容”
 在右侧修改教案各栏
+需要时点击字段旁的局部优化按钮
 点击“生成 Word”
 下载生成好的教案
 ```
@@ -78,16 +81,16 @@ http://127.0.0.1:8765
 python -m teacher_agent.cli scan-template templates\your_template.docx
 ```
 
-根据示例 JSON 填充 Word 模板：
+根据 JSON 填充 Word 模板：
 
 ```powershell
-python -m teacher_agent.cli fill-template --template templates\your_template.docx --data examples\sample_lesson_fields.json --output outputs\教案.docx
+python -m teacher_agent.cli fill-template --template templates\your_template.docx --data outputs\lesson_fields.json --output outputs\教案.docx
 ```
 
 先生成一份教案字段 JSON：
 
 ```powershell
-python -m teacher_agent.cli draft-lesson --subject 语文 --grade 四年级 --title 观潮 --material-file examples\sample_material.md --output outputs\lesson_fields.json
+python -m teacher_agent.cli draft-lesson --subject 语文 --grade 四年级 --title 观潮 --material-file your_material.txt --class-type 探究/实验课 --teaching-style 5E探究模型 --student-level 基础薄弱/补弱导向 --generation-depth 深度 --output outputs\lesson_fields.json
 ```
 
 再填入模板：

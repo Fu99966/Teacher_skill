@@ -11,7 +11,14 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
 from .docx_filler import fill_docx_template
-from .lesson_generator import draft_lesson_fields
+from .lesson_generator import (
+    DEFAULT_CLASS_TYPE,
+    DEFAULT_GENERATION_DEPTH,
+    DEFAULT_STUDENT_LEVEL,
+    DEFAULT_TEACHING_STYLE,
+    draft_lesson_fields,
+    refine_lesson_field,
+)
 from .preview_renderer import render_docx_pdf_preview
 from .sample_template import create_sample_template
 from .template_parser import analyze_template
@@ -190,6 +197,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
 
+        if parsed.path == "/api/refine-field":
+            try:
+                self._handle_refine_field()
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
         if parsed.path != "/api/generate":
             self._send(*_json_bytes({"error": "接口不存在"}, HTTPStatus.NOT_FOUND))
             return
@@ -199,7 +213,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
 
-    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, Path, dict]:
+    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, str, str, str, str, Path, dict]:
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             raise ValueError("请使用表单提交")
@@ -217,14 +231,54 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         title = _form_value(form, "title", "未命名课题")
         class_hour = _form_value(form, "class_hour", "1课时")
         material = _form_value(form, "material", "")
+        class_type = _form_value(form, "class_type", DEFAULT_CLASS_TYPE)
+        teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
+        student_level = _form_value(form, "student_level", DEFAULT_STUDENT_LEVEL)
+        generation_depth = _form_value(form, "generation_depth", DEFAULT_GENERATION_DEPTH)
 
         template_path = self._save_template(form)
         template_analysis = analyze_template(template_path)
-        return form, subject, grade, title, class_hour, material, template_path, template_analysis
+        return (
+            form,
+            subject,
+            grade,
+            title,
+            class_hour,
+            material,
+            class_type,
+            teaching_style,
+            student_level,
+            generation_depth,
+            template_path,
+            template_analysis,
+        )
 
     def _handle_draft(self) -> None:
-        _, subject, grade, title, class_hour, material, template_path, template_analysis = self._read_lesson_form()
-        lesson = draft_lesson_fields(subject, grade, title, material, class_hour)
+        (
+            _,
+            subject,
+            grade,
+            title,
+            class_hour,
+            material,
+            class_type,
+            teaching_style,
+            student_level,
+            generation_depth,
+            template_path,
+            template_analysis,
+        ) = self._read_lesson_form()
+        lesson = draft_lesson_fields(
+            subject,
+            grade,
+            title,
+            material,
+            class_hour,
+            class_type,
+            teaching_style,
+            student_level,
+            generation_depth,
+        )
 
         self._send(
             *_json_bytes(
@@ -236,6 +290,20 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 }
             )
         )
+
+    def _handle_refine_field(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0") or "0")
+        payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+
+        field = str(payload.get("field") or "")
+        value = str(payload.get("value") or "")
+        action = str(payload.get("action") or "more_vivid")
+        instruction = str(payload.get("instruction") or "")
+        if not field:
+            raise ValueError("缺少字段名")
+
+        refined = refine_lesson_field(field, value, action, instruction)
+        self._send(*_json_bytes({"field": field, "value": refined}))
 
     def _handle_export(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0") or "0")
@@ -272,9 +340,32 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_generate(self) -> None:
-        _, subject, grade, title, class_hour, material, template_path, template_analysis = self._read_lesson_form()
+        (
+            _,
+            subject,
+            grade,
+            title,
+            class_hour,
+            material,
+            class_type,
+            teaching_style,
+            student_level,
+            generation_depth,
+            template_path,
+            template_analysis,
+        ) = self._read_lesson_form()
 
-        lesson = draft_lesson_fields(subject, grade, title, material, class_hour)
+        lesson = draft_lesson_fields(
+            subject,
+            grade,
+            title,
+            material,
+            class_hour,
+            class_type,
+            teaching_style,
+            student_level,
+            generation_depth,
+        )
         safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")
         output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
         output_path = OUTPUT_DIR / output_name
@@ -298,9 +389,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
     def _save_template(self, form: cgi.FieldStorage) -> Path:
         template_item = form["template"] if "template" in form else None
         if template_item is None or not template_item.filename:
-            if not SAMPLE_TEMPLATE.exists():
-                create_sample_template(SAMPLE_TEMPLATE)
-            return SAMPLE_TEMPLATE
+            raise ValueError("请上传学校 Word 模板")
 
         original_name = Path(template_item.filename).name
         if not original_name.lower().endswith(".docx"):

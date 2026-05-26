@@ -59,6 +59,7 @@ body::after {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -188,6 +189,7 @@ label span {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -199,9 +201,23 @@ textarea {
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
-input {
+input,
+select {
   height: 48px;
   padding: 0 14px;
+}
+
+select {
+  padding-right: 40px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(17, 24, 39, 0.66) 50%),
+    linear-gradient(135deg, rgba(17, 24, 39, 0.66) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 20px,
+    calc(100% - 12px) 20px;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
 }
 
 input[type="file"] {
@@ -219,11 +235,13 @@ textarea {
 }
 
 input:hover,
+select:hover,
 textarea:hover {
   background: rgba(255, 255, 255, 0.66);
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: rgba(52, 120, 246, 0.62);
   background: rgba(255, 255, 255, 0.78);
@@ -450,6 +468,64 @@ textarea:focus {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.02em;
+}
+
+.preview-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.preview-item-head h3 {
+  margin: 0;
+}
+
+.field-ai-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.refine-mode {
+  width: 112px;
+  height: 34px;
+  padding: 0 28px 0 10px;
+  border-color: rgba(255, 255, 255, 0.68);
+  background-color: rgba(255, 255, 255, 0.42);
+  background-position:
+    calc(100% - 15px) 13px,
+    calc(100% - 10px) 13px;
+  background-size: 5px 5px, 5px 5px;
+  color: rgba(17, 24, 39, 0.72);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.icon-button {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(52, 120, 246, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--blue-dark);
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.icon-button:hover {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.icon-button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .field-editor {
