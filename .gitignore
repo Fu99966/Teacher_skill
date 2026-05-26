@@ -11,5 +11,7 @@ outputs/v2-test/
 outputs/v4-test/
 outputs/web-server*.log
 outputs/web-server.pid
+outputs/*.sqlite3
 outputs/*-教案-*.docx
 outputs/*-test.json
+outputs/*-test.docx

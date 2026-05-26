@@ -10,6 +10,14 @@ const previewList = document.querySelector("#preview-list");
 const templateMode = document.querySelector("#template-mode");
 const templateMap = document.querySelector("#template-map");
 const previewLink = document.querySelector("#preview-link");
+const workflowVersion = document.querySelector("#workflow-version");
+const workflowSteps = document.querySelector("#workflow-steps");
+const reviewPanel = document.querySelector("#review-panel");
+const reviewScore = document.querySelector("#review-score");
+const reviewSummary = document.querySelector("#review-summary");
+const reviewIssues = document.querySelector("#review-issues");
+const reviewImprovements = document.querySelector("#review-improvements");
+const historyList = document.querySelector("#history-list");
 
 const fieldLabels = {
   lesson_title: "课题",
@@ -24,6 +32,12 @@ const fieldLabels = {
   blackboard_design: "板书设计",
   homework: "作业设计",
   reflection: "教学反思",
+  safety_precautions: "安全注意事项",
+  warm_up: "热身环节",
+  core_training: "核心训练",
+  assessment: "学习评价",
+  resources: "教学资源",
+  unit_plan: "单元规划",
 };
 
 const previewOrder = [
@@ -52,6 +66,11 @@ let currentTemplateId = null;
 let currentDownloadUrl = "#";
 let currentPreviewUrl = "#";
 let currentTemplateAnalysis = null;
+let currentRequestContext = null;
+let currentReviewReport = null;
+let currentWorkflowTrace = [];
+let currentGenerationBackend = null;
+let workflowSchema = null;
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
@@ -89,6 +108,130 @@ function setDownloadStale(message = "未导出") {
   setPreviewReady(null);
 }
 
+const defaultWorkflowNodes = [
+  { id: "app_input", label: "应用输入", layer: "应用层" },
+  { id: "template_analyzer", label: "模板解析", layer: "编排层" },
+  { id: "knowledge_context", label: "RAG 上下文", layer: "知识层" },
+  { id: "lesson_writer", label: "执教老师 Agent", layer: "Agent 层" },
+  { id: "teaching_reviewer", label: "教研组长 Agent", layer: "Agent 层" },
+  { id: "lesson_reviser", label: "二次修订 Agent", layer: "Agent 层" },
+  { id: "doc_renderer", label: "Word 渲染器", layer: "工具层" },
+  { id: "history_store", label: "历史记录", layer: "数据层" },
+];
+
+function readRequestContext(formData) {
+  return {
+    subject: formData.get("subject") || "",
+    grade: formData.get("grade") || "",
+    title: formData.get("title") || "",
+    class_hour: formData.get("class_hour") || "",
+    class_type: formData.get("class_type") || "",
+    teaching_style: formData.get("teaching_style") || "",
+    student_level: formData.get("student_level") || "",
+    generation_depth: formData.get("generation_depth") || "",
+  };
+}
+
+function renderWorkflowTrace(trace = []) {
+  const nodes = workflowSchema?.nodes?.length ? workflowSchema.nodes : defaultWorkflowNodes;
+  const traceByNode = new Map((trace || []).map((item) => [item.node, item]));
+  workflowSteps.innerHTML = "";
+  nodes.forEach((node) => {
+    const event = traceByNode.get(node.id);
+    const item = document.createElement("div");
+    item.className = `workflow-step ${event?.status || ""}`.trim();
+
+    const title = document.createElement("strong");
+    title.textContent = node.label;
+
+    const detail = document.createElement("span");
+    detail.textContent = event ? event.detail : node.layer;
+
+    item.append(title, detail);
+    workflowSteps.appendChild(item);
+  });
+}
+
+function renderReviewReport(report) {
+  currentReviewReport = report || null;
+  if (!report) {
+    reviewPanel.hidden = true;
+    reviewScore.textContent = "0";
+    reviewSummary.textContent = "";
+    reviewIssues.innerHTML = "";
+    reviewImprovements.innerHTML = "";
+    return;
+  }
+
+  reviewPanel.hidden = false;
+  reviewScore.textContent = `${report.score || 0} 分`;
+  reviewSummary.textContent = report.summary || "已完成教研审阅。";
+
+  reviewIssues.innerHTML = "";
+  (report.issues || []).forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    reviewIssues.appendChild(item);
+  });
+
+  reviewImprovements.innerHTML = "";
+  (report.improvements || []).forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    reviewImprovements.appendChild(item);
+  });
+}
+
+function renderHistory(items = []) {
+  historyList.innerHTML = "";
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "暂无导出记录";
+    historyList.appendChild(empty);
+    return;
+  }
+
+  items.slice(0, 6).forEach((item) => {
+    const link = document.createElement("a");
+    link.className = "history-item";
+    link.href = item.download_url;
+
+    const text = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${item.grade || ""}${item.subject || ""}：${item.title || "教案"}`;
+    const meta = document.createElement("span");
+    meta.textContent = `${item.created_at || ""} · ${backendLabels[item.backend] || item.backend || "生成器"}`;
+    text.append(title, meta);
+
+    const action = document.createElement("span");
+    action.textContent = "下载";
+    link.append(text, action);
+    historyList.appendChild(link);
+  });
+}
+
+async function loadWorkflowSchema() {
+  try {
+    const response = await fetch("/api/workflow-schema");
+    workflowSchema = await response.json();
+    workflowVersion.textContent = workflowSchema.version || "V5";
+  } catch {
+    workflowSchema = null;
+  }
+  renderWorkflowTrace(currentWorkflowTrace);
+}
+
+async function loadHistory() {
+  try {
+    const response = await fetch("/api/history");
+    const data = await response.json();
+    renderHistory(data.items || []);
+  } catch {
+    renderHistory([]);
+  }
+}
+
 function refreshResultTitle(fields) {
   if (!fields) return;
   resultTitle.textContent = `${fields.grade || ""}${fields.subject || ""}：${fields.lesson_title || ""}`;
@@ -96,7 +239,8 @@ function refreshResultTitle(fields) {
 
 function renderPreview(fields) {
   previewList.innerHTML = "";
-  previewOrder.forEach((key) => {
+  const keys = [...previewOrder, ...Object.keys(fields || {}).filter((key) => !previewOrder.includes(key))];
+  keys.forEach((key) => {
     if (!fields[key]) return;
     const item = document.createElement("article");
     item.className = "preview-item";
@@ -224,12 +368,18 @@ form.addEventListener("submit", async (event) => {
   currentFields = null;
   currentTemplateId = null;
   currentTemplateAnalysis = null;
+  currentReviewReport = null;
+  currentWorkflowTrace = [];
+  currentGenerationBackend = null;
   exportButton.disabled = true;
   setDownloadStale("未导出");
   renderTemplateAnalysis(null);
+  renderReviewReport(null);
+  renderWorkflowTrace([]);
 
   try {
     const formData = new FormData(form);
+    currentRequestContext = readRequestContext(formData);
     const response = await fetch("/api/draft", {
       method: "POST",
       body: formData,
@@ -243,12 +393,21 @@ form.addEventListener("submit", async (event) => {
     currentFields = data.fields;
     currentTemplateId = data.template_id;
     currentTemplateAnalysis = data.template_analysis;
+    currentReviewReport = data.review_report || null;
+    currentWorkflowTrace = data.workflow_trace || [];
+    currentGenerationBackend = data.generation_backend || null;
+    if (data.workflow_schema) {
+      workflowSchema = data.workflow_schema;
+      workflowVersion.textContent = workflowSchema.version || "V5";
+    }
     refreshResultTitle(data.fields);
     fieldCount.textContent = String(data.template_fields.length);
     renderTemplateAnalysis(data.template_analysis);
+    renderReviewReport(currentReviewReport);
+    renderWorkflowTrace(currentWorkflowTrace);
     renderPreview(data.fields);
     exportButton.disabled = false;
-    setStatus(`内容已生成（${backendLabels[data.generation_backend] || "生成器"}）`);
+    setStatus(`内容已生成并完成教研审阅（${backendLabels[data.generation_backend] || "生成器"}）`);
   } catch (error) {
     setStatus(error.message || "生成失败", true);
   } finally {
@@ -275,6 +434,10 @@ exportButton.addEventListener("click", async () => {
       body: JSON.stringify({
         template_id: currentTemplateId,
         fields: editedFields,
+        request_context: currentRequestContext,
+        generation_backend: currentGenerationBackend,
+        review_report: currentReviewReport,
+        workflow_trace: currentWorkflowTrace,
       }),
     });
 
@@ -285,10 +448,13 @@ exportButton.addEventListener("click", async () => {
 
     currentFields = editedFields;
     currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis;
+    currentWorkflowTrace = data.workflow_trace || currentWorkflowTrace;
     refreshResultTitle(currentFields);
     renderTemplateAnalysis(currentTemplateAnalysis);
+    renderWorkflowTrace(currentWorkflowTrace);
     setDownloadReady(data.download_url, data.output_name);
     setPreviewReady(data.preview_url);
+    loadHistory();
     setStatus(data.preview_url ? "最新 Word 已生成，可查看真实预览" : "最新 Word 已生成；本机未检测到 PDF 预览工具");
   } catch (error) {
     setStatus(error.message || "导出失败", true);
@@ -359,3 +525,8 @@ previewLink.addEventListener("click", (event) => {
     setStatus(currentFields ? "当前环境未生成预览，请下载 Word 查看" : "请先生成内容", true);
   }
 });
+
+renderReviewReport(null);
+renderWorkflowTrace([]);
+loadWorkflowSchema();
+loadHistory();

@@ -10,18 +10,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
-from .docx_filler import fill_docx_template
+from .history_store import HistoryStore
 from .lesson_generator import (
     DEFAULT_CLASS_TYPE,
     DEFAULT_GENERATION_DEPTH,
     DEFAULT_STUDENT_LEVEL,
     DEFAULT_TEACHING_STYLE,
-    draft_lesson_fields_with_source,
     refine_lesson_field,
 )
-from .preview_renderer import render_docx_pdf_preview
 from .sample_template import create_sample_template
 from .template_parser import analyze_template
+from .workflow import LessonRequest, TeacherWorkflow, build_workflow_schema
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +28,7 @@ WEB_ROOT = PROJECT_ROOT / "web"
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
 UPLOAD_DIR = OUTPUT_DIR / "uploads"
 PREVIEW_DIR = OUTPUT_DIR / "previews"
+HISTORY_DB = OUTPUT_DIR / "teacher_skill_history.sqlite3"
 TEMPLATE_DIR = PROJECT_ROOT / "templates"
 SAMPLE_MATERIAL = PROJECT_ROOT / "examples" / "sample_material.md"
 SAMPLE_TEMPLATE = TEMPLATE_DIR / "sample_lesson_template.docx"
@@ -131,6 +131,15 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if path == "/api/sample-material":
             material = SAMPLE_MATERIAL.read_text(encoding="utf-8") if SAMPLE_MATERIAL.exists() else ""
             self._send(*_json_bytes({"material": material}))
+            return
+
+        if path == "/api/workflow-schema":
+            self._send(*_json_bytes(build_workflow_schema()))
+            return
+
+        if path == "/api/history":
+            history = HistoryStore(HISTORY_DB).list_documents()
+            self._send(*_json_bytes({"items": history}))
             return
 
         if path == "/download/sample-template":
@@ -268,29 +277,24 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             template_path,
             template_analysis,
         ) = self._read_lesson_form()
-        lesson, generation_backend = draft_lesson_fields_with_source(
+        request = LessonRequest(
             subject,
             grade,
             title,
-            material,
             class_hour,
+            material,
             class_type,
             teaching_style,
             student_level,
             generation_depth,
         )
+        workflow = TeacherWorkflow()
+        result = workflow.draft(request, template_path, _template_id_for(template_path))
 
-        self._send(
-            *_json_bytes(
-                {
-                    "fields": lesson.to_dict(),
-                    "template_fields": template_analysis["mapped_fields"],
-                    "template_analysis": template_analysis,
-                    "template_id": _template_id_for(template_path),
-                    "generation_backend": generation_backend,
-                }
-            )
-        )
+        # Keep this local variable referenced so template analysis failures are
+        # surfaced before generation starts.
+        result["template_analysis"] = result.get("template_analysis") or template_analysis
+        self._send(*_json_bytes(result))
 
     def _handle_refine_field(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0") or "0")
@@ -318,27 +322,40 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             raise ValueError("缺少模板信息")
 
         template_path = _template_from_id(template_id)
-        title = str(fields.get("lesson_title") or "教案")
-        grade = str(fields.get("grade") or "年级")
-        subject = str(fields.get("subject") or "学科")
-        safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")
-        output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
-        output_path = OUTPUT_DIR / output_name
-        fill_docx_template(template_path, fields, output_path)
-        template_analysis = analyze_template(template_path)
-        preview_pdf = render_docx_pdf_preview(output_path, PREVIEW_DIR)
-        preview_url = f"/preview/{quote(preview_pdf.name)}" if preview_pdf else None
+        workflow = TeacherWorkflow()
+        result = workflow.export_document(fields, template_path, OUTPUT_DIR, PREVIEW_DIR)
 
-        self._send(
-            *_json_bytes(
-                {
-                    "output_name": output_name,
-                    "download_url": f"/download/{quote(output_name)}",
-                    "preview_url": preview_url,
-                    "template_analysis": template_analysis,
-                }
-            )
+        prior_trace = payload.get("workflow_trace")
+        if isinstance(prior_trace, list):
+            result["workflow_trace"] = prior_trace + result["workflow_trace"]
+
+        request_context = payload.get("request_context") if isinstance(payload.get("request_context"), dict) else {}
+        review_report = payload.get("review_report") if isinstance(payload.get("review_report"), dict) else {}
+        generation_backend = str(payload.get("generation_backend") or "manual_export")
+        template_mode = result["template_analysis"].get("mode", "unknown")
+        result["workflow_trace"].append(
+            {
+                "node": "history_store",
+                "label": "历史记录",
+                "status": "done",
+                "detail": "已写入本地 SQLite 历史库，便于教师找回最近导出。",
+                "elapsed_ms": result["workflow_trace"][-1]["elapsed_ms"] if result["workflow_trace"] else 0,
+            }
         )
+        history_item = HistoryStore(HISTORY_DB).save_document(
+            fields=fields,
+            request_context=request_context,
+            generation_backend=generation_backend,
+            template_mode=template_mode,
+            output_name=result["output_name"],
+            download_url=result["download_url"],
+            preview_url=result["preview_url"],
+            review_report=review_report,
+            workflow_trace=result["workflow_trace"],
+        )
+        result["history_item"] = history_item
+
+        self._send(*_json_bytes(result))
 
     def _handle_generate(self) -> None:
         (
@@ -356,34 +373,53 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             template_analysis,
         ) = self._read_lesson_form()
 
-        lesson, generation_backend = draft_lesson_fields_with_source(
+        request = LessonRequest(
             subject,
             grade,
             title,
-            material,
             class_hour,
+            material,
             class_type,
             teaching_style,
             student_level,
             generation_depth,
         )
-        safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")
-        output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
-        output_path = OUTPUT_DIR / output_name
-        fill_docx_template(template_path, lesson.to_dict(), output_path)
-        preview_pdf = render_docx_pdf_preview(output_path, PREVIEW_DIR)
-        preview_url = f"/preview/{quote(preview_pdf.name)}" if preview_pdf else None
+        workflow = TeacherWorkflow()
+        draft_result = workflow.draft(request, template_path, _template_id_for(template_path))
+        export_result = workflow.export_document(draft_result["fields"], template_path, OUTPUT_DIR, PREVIEW_DIR)
+        template_mode = export_result["template_analysis"].get("mode", "unknown")
+        export_result["workflow_trace"].append(
+            {
+                "node": "history_store",
+                "label": "历史记录",
+                "status": "done",
+                "detail": "已写入本地 SQLite 历史库，便于教师找回最近导出。",
+                "elapsed_ms": export_result["workflow_trace"][-1]["elapsed_ms"] if export_result["workflow_trace"] else 0,
+            }
+        )
+        history_item = HistoryStore(HISTORY_DB).save_document(
+            fields=draft_result["fields"],
+            request_context=request.to_dict(),
+            generation_backend=str(draft_result["generation_backend"]),
+            template_mode=template_mode,
+            output_name=export_result["output_name"],
+            download_url=export_result["download_url"],
+            preview_url=export_result["preview_url"],
+            review_report=draft_result["review_report"],
+            workflow_trace=export_result["workflow_trace"],
+        )
 
         self._send(
             *_json_bytes(
                 {
-                    "fields": lesson.to_dict(),
+                    **draft_result,
                     "template_fields": template_analysis["mapped_fields"],
-                    "template_analysis": template_analysis,
-                    "output_name": output_name,
-                    "download_url": f"/download/{quote(output_name)}",
-                    "preview_url": preview_url,
-                    "generation_backend": generation_backend,
+                    "template_analysis": export_result["template_analysis"],
+                    "output_name": export_result["output_name"],
+                    "download_url": export_result["download_url"],
+                    "preview_url": export_result["preview_url"],
+                    "workflow_trace": export_result["workflow_trace"],
+                    "history_item": history_item,
                 }
             )
         )

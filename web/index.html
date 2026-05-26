@@ -12,9 +12,13 @@
         <div class="brand">
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <p class="eyebrow">Teacher_skill V4</p>
+            <p class="eyebrow">Teacher_skill V5</p>
             <h1>教师文档智能体</h1>
           </div>
+        </div>
+        <div class="topbar-meta" aria-label="当前架构">
+          <span>Dify-inspired</span>
+          <strong>可编排备课工作流</strong>
         </div>
       </header>
 
@@ -23,6 +27,14 @@
           <div class="panel-head">
             <p class="eyebrow">Lesson Studio</p>
             <h2>课程信息</h2>
+          </div>
+
+          <div class="workflow-map" aria-label="智能体框架图">
+            <div class="workflow-map-head">
+              <span>智能体框架</span>
+              <strong id="workflow-version">V5</strong>
+            </div>
+            <div class="workflow-steps" id="workflow-steps"></div>
           </div>
 
           <form id="lesson-form">
@@ -140,6 +152,32 @@
           </div>
 
           <div class="template-map" id="template-map" hidden></div>
+
+          <section class="review-panel" id="review-panel" hidden>
+            <div class="mini-head">
+              <span>教研审阅</span>
+              <strong id="review-score">0</strong>
+            </div>
+            <p id="review-summary"></p>
+            <div class="review-columns">
+              <div>
+                <span>发现问题</span>
+                <ul id="review-issues"></ul>
+              </div>
+              <div>
+                <span>优化建议</span>
+                <ul id="review-improvements"></ul>
+              </div>
+            </div>
+          </section>
+
+          <section class="history-panel">
+            <div class="mini-head">
+              <span>历史记录</span>
+              <strong>最近导出</strong>
+            </div>
+            <div class="history-list" id="history-list"></div>
+          </section>
 
           <div class="preview-list" id="preview-list"></div>
         </section>

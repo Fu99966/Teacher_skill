@@ -87,6 +87,27 @@ textarea {
   box-shadow: var(--shadow-tight);
 }
 
+.topbar-meta {
+  display: grid;
+  gap: 5px;
+  justify-items: end;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.topbar-meta span {
+  color: rgba(17, 24, 39, 0.56);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.topbar-meta strong {
+  font-size: 14px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -163,6 +184,80 @@ h2 {
 
 .panel-head + form {
   margin-top: 18px;
+}
+
+.workflow-map {
+  margin-top: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+  padding: 13px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.workflow-map-head,
+.mini-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-map-head span,
+.mini-head span {
+  color: rgba(17, 24, 39, 0.56);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workflow-map-head strong,
+.mini-head strong {
+  color: rgba(17, 24, 39, 0.78);
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.workflow-step {
+  min-height: 58px;
+  border: 1px solid rgba(41, 51, 73, 0.1);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.52);
+  overflow: hidden;
+}
+
+.workflow-step strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.workflow-step span {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: rgba(17, 24, 39, 0.55);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.workflow-step.done {
+  border-color: rgba(47, 180, 119, 0.32);
+  background: rgba(239, 255, 247, 0.7);
+}
+
+.workflow-step.warning {
+  border-color: rgba(201, 130, 25, 0.32);
+  background: rgba(255, 248, 232, 0.72);
 }
 
 .field-grid {
@@ -448,6 +543,97 @@ textarea:focus {
   font-weight: 750;
 }
 
+.review-panel,
+.history-panel {
+  margin-top: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 8px;
+  padding: 13px;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.review-panel p {
+  margin: 10px 0 0;
+  color: rgba(17, 24, 39, 0.68);
+  line-height: 1.6;
+}
+
+.review-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 11px;
+}
+
+.review-columns div {
+  min-width: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.46);
+  padding: 10px;
+}
+
+.review-columns span {
+  display: block;
+  color: rgba(17, 24, 39, 0.56);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.review-columns ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: rgba(17, 24, 39, 0.68);
+  line-height: 1.55;
+}
+
+.review-columns li + li {
+  margin-top: 5px;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.history-empty {
+  color: rgba(17, 24, 39, 0.54);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(41, 51, 73, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.48);
+  padding: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.history-item strong,
+.history-item span {
+  overflow-wrap: anywhere;
+}
+
+.history-item strong {
+  font-size: 13px;
+}
+
+.history-item span {
+  color: rgba(17, 24, 39, 0.54);
+  font-size: 12px;
+}
+
 .preview-list {
   display: grid;
   gap: 12px;
@@ -552,6 +738,11 @@ textarea:focus {
     flex-direction: column;
   }
 
+  .topbar-meta {
+    justify-items: start;
+    width: 100%;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
   }
@@ -572,7 +763,9 @@ textarea:focus {
   }
 
   .field-grid,
-  .summary-grid {
+  .summary-grid,
+  .workflow-steps,
+  .review-columns {
     grid-template-columns: 1fr;
   }
 

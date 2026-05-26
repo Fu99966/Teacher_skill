@@ -2,16 +2,20 @@
 
 这是一个面向教师工作的智能体项目，设计思路参考 AgentSkills Runtime：把教师常用工作拆成多个可复用 Skill，再由 Agent 按任务调用。
 
-当前版本聚焦教师备课文档的 V4 工作流：
+当前版本聚焦教师备课文档的 V5 工作流，采用 Dify-inspired 的“应用输入 + 工作流编排 + 多 Agent + 文档工具 + 历史记录”结构：
 
 1. 根据教材内容生成教案字段。
 2. 通过课型、教学法、学生层次、生成深度控制生成风格，避免内容单一。
 3. 根据年级自动识别小学、中学或大学学段，调整教学目标、课堂活动和作业深度。
-4. 让教师在网页中检查和修改每个字段。
-5. 支持字段级局部 AI 微调，例如“深化探究”“降低难度”“增加互动”。
-6. 读取 Word 模板里的 `{{field_name}}` 占位符。
-7. 如果模板没有占位符，自动识别表格中的“课题、教学目标、教学过程”等标签，把内容填入右侧单元格。
-8. 把确认后的教案字段填入模板，尽量保留原模板的字体、表格、页眉页脚、段落样式。
+4. 自动抽取教材重点片段，作为轻量 RAG 上下文注入生成流程。
+5. 使用“执教老师 Agent + 教研组长 Agent + 二次修订 Agent”的内部教研链提升质量。
+6. 让教师在网页中检查和修改每个字段。
+7. 支持字段级局部 AI 微调，例如“深化探究”“降低难度”“增加互动”。
+8. 读取 Word 模板里的 `{{field_name}}` 占位符。
+9. 支持由模板反向定义生成字段，例如 `{{warm_up}}`、`{{safety_precautions}}`、`{{assessment}}`。
+10. 如果模板没有占位符，自动识别表格中的“课题、教学目标、教学过程”等标签，把内容填入右侧单元格。
+11. 把确认后的教案字段填入模板，尽量保留原模板的字体、表格、页眉页脚、段落样式。
+12. 使用 SQLite 保存最近导出的历史记录，方便教师找回文件。
 
 ## 项目结构
 
@@ -22,9 +26,13 @@ teacher-agent-skills/
   teacher_agent/
     cli.py
     docx_filler.py
+    history_store.py
     lesson_generator.py
     preview_renderer.py
+    rag_context.py
+    teacher_agents.py
     template_parser.py
+    workflow.py
   skills/
     lesson-plan-writer/
     document-template-filler/
@@ -38,6 +46,7 @@ teacher-agent-skills/
   outputs/
   docs/
     workflow.md
+    v5_dify_framework.md
 ```
 
 ## 快速使用
@@ -82,10 +91,17 @@ http://127.0.0.1:8765
 填写学科、年级、课题和教材内容
 选择课型、教学法、学生层次和生成深度
 点击“生成内容”
+查看智能体框架、教研审阅报告和生成字段
 在右侧修改教案各栏
 需要时点击字段旁的局部优化按钮
 点击“生成 Word”
 下载生成好的教案
+```
+
+V5 架构图见：
+
+```text
+docs/v5_dify_framework.md
 ```
 
 右侧内容如果在生成 Word 后又被修改，旧下载链接会自动失效，需要重新点击“生成 Word”。这样可保证下载文件与网页编辑区内容一致。

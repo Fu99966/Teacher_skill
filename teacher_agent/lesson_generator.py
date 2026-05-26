@@ -252,6 +252,122 @@ def draft_lesson_fields_with_source(
         return fallback, "local_fallback"
 
 
+def draft_lesson_document_fields_with_source(
+    subject: str,
+    grade: str,
+    title: str,
+    material: str,
+    class_hour: str = "1课时",
+    class_type: str = DEFAULT_CLASS_TYPE,
+    teaching_style: str = DEFAULT_TEACHING_STYLE,
+    student_level: str = DEFAULT_STUDENT_LEVEL,
+    generation_depth: str = DEFAULT_GENERATION_DEPTH,
+    template_fields: list[str] | None = None,
+) -> tuple[dict[str, str], str]:
+    """Create a document field map guided by Word template placeholders."""
+    fields = template_fields or JSON_FIELD_NAMES
+    local_lesson = draft_lesson_fields_local(
+        subject,
+        grade,
+        title,
+        material,
+        class_hour,
+        class_type,
+        teaching_style,
+        student_level,
+        generation_depth,
+    )
+    fallback = _document_fields_from_lesson(local_lesson, fields)
+    if not is_deepseek_configured():
+        return fallback, "local"
+
+    prompt = build_lesson_prompt(
+        subject,
+        grade,
+        title,
+        material,
+        class_hour,
+        class_type,
+        teaching_style,
+        student_level,
+        generation_depth,
+        fields,
+    )
+    try:
+        data = chat_json(
+            prompt,
+            system="你是教育文档 JSON 生成引擎。只输出合法 JSON，不输出 Markdown，不输出解释。",
+            temperature=0.82,
+            max_tokens=7600,
+        )
+        return _document_fields_from_dict(data, fallback, fields), "deepseek"
+    except Exception:
+        return fallback, "local_fallback"
+
+
+def _document_fields_from_lesson(lesson: LessonFields, template_fields: list[str]) -> dict[str, str]:
+    base = lesson.to_dict()
+    result = dict(base)
+    for field in template_fields:
+        if field not in result:
+            result[field] = _dynamic_template_field_default(field, base)
+    return result
+
+
+def _document_fields_from_dict(data: dict, fallback: dict[str, str], template_fields: list[str]) -> dict[str, str]:
+    allowed = set(JSON_FIELD_NAMES) | set(template_fields)
+    result = dict(fallback)
+    for key, value in data.items():
+        if key not in allowed or value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            text = "\n".join(str(item) for item in value)
+        elif isinstance(value, dict):
+            text = json.dumps(value, ensure_ascii=False, indent=2)
+        else:
+            text = str(value)
+        text = text.replace("{{", "").replace("}}", "").strip()
+        if text:
+            result[key] = text
+    for field in template_fields:
+        if field not in result:
+            result[field] = _dynamic_template_field_default(field, result)
+    return result
+
+
+def _dynamic_template_field_default(field: str, base: dict[str, str]) -> str:
+    key = field.lower()
+    title = base.get("lesson_title", "本课")
+    subject = base.get("subject", "学科")
+    grade = base.get("grade", "学生")
+    if "safety" in key or "安全" in field:
+        return (
+            f"1. 活动前明确《{title}》相关课堂规则，提醒学生按要求使用学习材料或实验器材。\n"
+            "2. 小组合作时保持有序交流，避免追逐、抢拿器材或离开指定区域。\n"
+            "3. 教师巡视重点关注操作安全、情绪状态和突发情况，必要时及时暂停活动。"
+        )
+    if "warm" in key or "热身" in field:
+        return (
+            f"围绕《{title}》设置 3-5 分钟热身任务：教师抛出生活化问题或展示材料，"
+            f"引导{grade}学生快速唤醒已有经验，并用一句话说出自己的初步发现。"
+        )
+    if "training" in key or "practice" in key or "训练" in field:
+        return (
+            f"核心训练围绕{subject}关键能力展开：先完成基础识记或观察任务，再进行变式应用，"
+            "最后用开放问题检验学生能否迁移到新情境。"
+        )
+    if "assessment" in key or "evaluation" in key or "评价" in field:
+        return (
+            "采用过程性评价与结果性评价结合：观察小组讨论质量、课堂表达证据、练习完成情况，"
+            "并用出口卡收集学生仍需追问的问题。"
+        )
+    if "resource" in key or "material" in key or "资源" in field or "材料" in field:
+        return "教材文本、多媒体课件、学习任务单、分层练习单，以及与课堂情境相关的图片或案例材料。"
+    if "unit" in key or "单元" in field:
+        return f"本课作为单元学习的一环，承接前置知识，并为后续围绕《{title}》的迁移应用与综合表达做准备。"
+    return f"围绕《{title}》生成“{field}”内容，需符合{grade}{subject}课堂实际，教师可结合学校模板进一步微调。"
+
+
 def draft_lesson_fields_local(
     subject: str,
     grade: str,
@@ -292,6 +408,11 @@ def _lesson_fields_from_dict(data: dict, fallback: LessonFields) -> LessonFields
             if text:
                 merged[key] = text
     return LessonFields(**merged)
+
+
+def coerce_lesson_fields(data: dict, fallback: LessonFields) -> LessonFields:
+    """Convert model JSON into complete lesson fields with a fallback."""
+    return _lesson_fields_from_dict(data, fallback)
 
 
 def _normalize_option(value: str, fallback: str) -> str:
