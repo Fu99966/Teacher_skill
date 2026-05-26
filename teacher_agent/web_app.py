@@ -10,6 +10,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
+from .agent_core.executor import AgentExecutor
+from .agent_core.planner import build_plan
+from .agent_core.task_router import route_task
+from .agent_core.tool_registry import build_lesson_tool_registry
 from .history_store import HistoryStore
 from .lesson_generator import (
     DEFAULT_CLASS_TYPE,
@@ -29,6 +33,7 @@ OUTPUT_DIR = PROJECT_ROOT / "outputs"
 UPLOAD_DIR = OUTPUT_DIR / "uploads"
 PREVIEW_DIR = OUTPUT_DIR / "previews"
 HISTORY_DB = OUTPUT_DIR / "teacher_skill_history.sqlite3"
+AGENT_MEMORY_DB = OUTPUT_DIR / "teacher_skill_agent_memory.sqlite3"
 TEMPLATE_DIR = PROJECT_ROOT / "templates"
 SAMPLE_MATERIAL = PROJECT_ROOT / "examples" / "sample_material.md"
 SAMPLE_TEMPLATE = TEMPLATE_DIR / "sample_lesson_template.docx"
@@ -213,6 +218,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
 
+        if parsed.path == "/api/agent-run":
+            try:
+                self._handle_agent_run()
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
         if parsed.path != "/api/generate":
             self._send(*_json_bytes({"error": "接口不存在"}, HTTPStatus.NOT_FOUND))
             return
@@ -309,6 +321,113 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         refined = refine_lesson_field(field, value, action, instruction)
         self._send(*_json_bytes({"field": field, "value": refined}))
+
+    def _handle_agent_run(self) -> None:
+        (
+            form,
+            subject,
+            grade,
+            title,
+            class_hour,
+            material,
+            class_type,
+            teaching_style,
+            student_level,
+            generation_depth,
+            template_path,
+            template_analysis,
+        ) = self._read_lesson_form()
+        agent_request = _form_value(form, "agent_request", "")
+        if not agent_request.strip():
+            raise ValueError("请先输入 Agent 指令")
+
+        defaults = {
+            "subject": subject if subject != "语文" else "",
+            "grade": grade if grade != "四年级" else "",
+            "title": title if title != "未命名课题" else "",
+            "class_hour": class_hour,
+            "class_type": class_type if class_type != DEFAULT_CLASS_TYPE else "",
+            "teaching_style": teaching_style if teaching_style != DEFAULT_TEACHING_STYLE else "",
+            "student_level": student_level if student_level != DEFAULT_STUDENT_LEVEL else "",
+            "generation_depth": generation_depth if generation_depth != DEFAULT_GENERATION_DEPTH else "",
+        }
+        task = route_task(agent_request, defaults)
+        plan = build_plan(task)
+
+        if task.missing_fields:
+            self._send(
+                *_json_bytes(
+                    {
+                        "needs_input": True,
+                        "agent_task": task.to_dict(),
+                        "agent_plan": [step.to_dict() for step in plan],
+                        "missing_fields": task.missing_fields,
+                        "message": "Agent 需要补齐学科、年级或课题后再执行。",
+                    },
+                    HTTPStatus.BAD_REQUEST,
+                )
+            )
+            return
+
+        if task.task_type != "lesson_plan":
+            self._send(
+                *_json_bytes(
+                    {
+                        "needs_input": True,
+                        "agent_task": task.to_dict(),
+                        "agent_plan": [step.to_dict() for step in plan],
+                        "message": "当前 Agent MVP 只支持教案生成任务。",
+                    },
+                    HTTPStatus.BAD_REQUEST,
+                )
+            )
+            return
+
+        lesson_request = LessonRequest(
+            task.subject,
+            task.grade,
+            task.title,
+            task.class_hour,
+            material or agent_request,
+            task.class_type,
+            task.teaching_style,
+            task.student_level,
+            task.generation_depth,
+        )
+        context = {
+            "agent_task": task,
+            "lesson_request": lesson_request,
+            "template_path": template_path,
+            "template_id": _template_id_for(template_path),
+            "template_analysis": template_analysis,
+        }
+        registry = build_lesson_tool_registry(
+            output_dir=OUTPUT_DIR,
+            preview_dir=PREVIEW_DIR,
+            history_db=HISTORY_DB,
+            memory_db=AGENT_MEMORY_DB,
+        )
+        execution = AgentExecutor(registry).run(plan, context)
+        draft_result = context.get("draft_result") or {}
+        export_result = context.get("export_result") or {}
+
+        payload = {
+            **draft_result,
+            "fields": context.get("fields") or draft_result.get("fields") or {},
+            "template_fields": template_analysis["mapped_fields"],
+            "template_analysis": export_result.get("template_analysis") or draft_result.get("template_analysis") or template_analysis,
+            "template_id": _template_id_for(template_path),
+            "agent_task": task.to_dict(),
+            "agent_plan": [step.to_dict() for step in execution.plan],
+            "agent_failed": execution.failed,
+            "evaluation_report": context.get("evaluation_report"),
+            "output_name": export_result.get("output_name"),
+            "download_url": export_result.get("download_url"),
+            "preview_url": export_result.get("preview_url"),
+            "workflow_trace": context.get("workflow_trace") or draft_result.get("workflow_trace") or [],
+            "history_item": context.get("history_item"),
+        }
+        self._send(*_json_bytes(payload, HTTPStatus.INTERNAL_SERVER_ERROR if execution.failed else HTTPStatus.OK))
 
     def _handle_export(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0") or "0")

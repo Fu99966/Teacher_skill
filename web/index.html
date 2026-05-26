@@ -12,7 +12,7 @@
         <div class="brand">
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <p class="eyebrow">Teacher_skill V5</p>
+            <p class="eyebrow">Teacher_skill V6</p>
             <h1>教师文档智能体</h1>
           </div>
         </div>
@@ -38,6 +38,24 @@
           </div>
 
           <form id="lesson-form">
+            <section class="agent-command" aria-label="Agent 自然语言指令">
+              <label class="wide-label">
+                <span>Agent 指令</span>
+                <textarea
+                  name="agent_request"
+                  id="agent-request"
+                  rows="4"
+                  placeholder="例如：帮我生成一份四年级语文《观潮》的探究课教案，要适合公开课并包含分层作业"
+                ></textarea>
+              </label>
+              <div class="actions agent-actions">
+                <button type="button" class="glass-button agent-button" id="agent-run-button">
+                  <span class="button-icon" aria-hidden="true">⌁</span>
+                  <span>Agent 执行</span>
+                </button>
+              </div>
+            </section>
+
             <div class="field-grid">
               <label>
                 <span>学科</span>
@@ -152,6 +170,23 @@
           </div>
 
           <div class="template-map" id="template-map" hidden></div>
+
+          <section class="agent-result-panel" id="agent-result-panel" hidden>
+            <div class="mini-head">
+              <span>Agent 执行计划</span>
+              <strong id="agent-task-type">等待任务</strong>
+            </div>
+            <div class="agent-plan-list" id="agent-plan-list"></div>
+          </section>
+
+          <section class="evaluation-panel" id="evaluation-panel" hidden>
+            <div class="mini-head">
+              <span>自动检查</span>
+              <strong id="evaluation-status">待检查</strong>
+            </div>
+            <p id="evaluation-summary"></p>
+            <div class="evaluation-list" id="evaluation-list"></div>
+          </section>
 
           <section class="review-panel" id="review-panel" hidden>
             <div class="mini-head">

@@ -266,6 +266,27 @@ h2 {
   gap: 12px;
 }
 
+.agent-command {
+  margin: 18px 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.36);
+  padding: 13px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.agent-command .wide-label {
+  margin-top: 0;
+}
+
+.agent-command textarea {
+  min-height: 112px;
+}
+
+.agent-actions {
+  margin-top: 12px;
+}
+
 label,
 .wide-label {
   display: block;
@@ -401,7 +422,8 @@ textarea:focus {
 }
 
 .primary,
-.export-button {
+.export-button,
+.agent-button {
   border-color: rgba(52, 120, 246, 0.36);
   color: white;
   background: linear-gradient(180deg, rgba(72, 138, 255, 0.94), rgba(31, 94, 220, 0.94));
@@ -409,7 +431,8 @@ textarea:focus {
 }
 
 .primary:hover,
-.export-button:hover {
+.export-button:hover,
+.agent-button:hover {
   background: linear-gradient(180deg, rgba(92, 152, 255, 0.98), rgba(31, 94, 220, 0.98));
 }
 
@@ -543,6 +566,8 @@ textarea:focus {
   font-weight: 750;
 }
 
+.agent-result-panel,
+.evaluation-panel,
 .review-panel,
 .history-panel {
   margin-top: 12px;
@@ -551,6 +576,56 @@ textarea:focus {
   padding: 13px;
   background: rgba(255, 255, 255, 0.42);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.agent-plan-list,
+.evaluation-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.agent-plan-step,
+.evaluation-check {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 8px;
+  align-items: start;
+  border: 1px solid rgba(41, 51, 73, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.48);
+  padding: 10px;
+}
+
+.agent-plan-step strong,
+.evaluation-check strong {
+  color: rgba(17, 24, 39, 0.66);
+  font-size: 12px;
+  font-weight: 840;
+}
+
+.agent-plan-step span,
+.evaluation-check span {
+  color: rgba(17, 24, 39, 0.66);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.agent-plan-step.done strong,
+.evaluation-check.passed strong {
+  color: var(--green);
+}
+
+.agent-plan-step.error strong,
+.evaluation-check.failed strong {
+  color: var(--danger);
+}
+
+.evaluation-panel p {
+  margin: 10px 0 0;
+  color: rgba(17, 24, 39, 0.68);
+  line-height: 1.6;
 }
 
 .review-panel p {
@@ -774,6 +849,11 @@ textarea:focus {
   .result-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .agent-plan-step,
+  .evaluation-check {
+    grid-template-columns: 1fr;
   }
 
   .glass-button {

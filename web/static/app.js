@@ -1,5 +1,6 @@
 const form = document.querySelector("#lesson-form");
 const generateButton = document.querySelector("#generate-button");
+const agentRunButton = document.querySelector("#agent-run-button");
 const statusBox = document.querySelector("#status");
 const resultTitle = document.querySelector("#result-title");
 const downloadLink = document.querySelector("#download-link");
@@ -18,6 +19,13 @@ const reviewSummary = document.querySelector("#review-summary");
 const reviewIssues = document.querySelector("#review-issues");
 const reviewImprovements = document.querySelector("#review-improvements");
 const historyList = document.querySelector("#history-list");
+const agentResultPanel = document.querySelector("#agent-result-panel");
+const agentTaskType = document.querySelector("#agent-task-type");
+const agentPlanList = document.querySelector("#agent-plan-list");
+const evaluationPanel = document.querySelector("#evaluation-panel");
+const evaluationStatus = document.querySelector("#evaluation-status");
+const evaluationSummary = document.querySelector("#evaluation-summary");
+const evaluationList = document.querySelector("#evaluation-list");
 
 const fieldLabels = {
   lesson_title: "课题",
@@ -71,6 +79,8 @@ let currentReviewReport = null;
 let currentWorkflowTrace = [];
 let currentGenerationBackend = null;
 let workflowSchema = null;
+let currentAgentPlan = null;
+let currentEvaluationReport = null;
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
@@ -79,8 +89,10 @@ function setStatus(message, isError = false) {
 
 function setBusy(isBusy) {
   generateButton.disabled = isBusy;
+  agentRunButton.disabled = isBusy;
   exportButton.disabled = isBusy || !currentFields;
   generateButton.querySelector("span:last-child").textContent = isBusy ? "生成中" : "生成内容";
+  agentRunButton.querySelector("span:last-child").textContent = isBusy ? "执行中" : "Agent 执行";
 }
 
 function setDownloadReady(url, outputName) {
@@ -179,6 +191,56 @@ function renderReviewReport(report) {
     const item = document.createElement("li");
     item.textContent = text;
     reviewImprovements.appendChild(item);
+  });
+}
+
+function renderAgentPlan(task, plan = []) {
+  currentAgentPlan = plan || null;
+  if (!task && !plan.length) {
+    agentResultPanel.hidden = true;
+    agentTaskType.textContent = "等待任务";
+    agentPlanList.innerHTML = "";
+    return;
+  }
+
+  agentResultPanel.hidden = false;
+  agentTaskType.textContent = task ? `${task.task_type || "unknown"} · ${Math.round((task.confidence || 0) * 100)}%` : "执行计划";
+  agentPlanList.innerHTML = "";
+  plan.forEach((step) => {
+    const item = document.createElement("div");
+    item.className = `agent-plan-step ${step.status || ""}`.trim();
+    const status = document.createElement("strong");
+    status.textContent = step.status || "pending";
+    const detail = document.createElement("span");
+    detail.textContent = `${step.label || step.tool}${step.detail ? `：${step.detail}` : ""}`;
+    item.append(status, detail);
+    agentPlanList.appendChild(item);
+  });
+}
+
+function renderEvaluation(report) {
+  currentEvaluationReport = report || null;
+  if (!report) {
+    evaluationPanel.hidden = true;
+    evaluationStatus.textContent = "待检查";
+    evaluationSummary.textContent = "";
+    evaluationList.innerHTML = "";
+    return;
+  }
+
+  evaluationPanel.hidden = false;
+  evaluationStatus.textContent = report.passed ? "通过" : "需处理";
+  evaluationSummary.textContent = report.summary || "";
+  evaluationList.innerHTML = "";
+  (report.checks || []).forEach((check) => {
+    const item = document.createElement("div");
+    item.className = `evaluation-check ${check.passed ? "passed" : "failed"}`;
+    const status = document.createElement("strong");
+    status.textContent = check.passed ? "通过" : "未通过";
+    const detail = document.createElement("span");
+    detail.textContent = check.detail || check.name;
+    item.append(status, detail);
+    evaluationList.appendChild(item);
   });
 }
 
@@ -415,6 +477,74 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+agentRunButton.addEventListener("click", async () => {
+  setBusy(true);
+  setStatus("Agent 正在理解任务并制定执行计划");
+
+  currentFields = null;
+  currentTemplateId = null;
+  currentTemplateAnalysis = null;
+  currentReviewReport = null;
+  currentWorkflowTrace = [];
+  currentGenerationBackend = null;
+  exportButton.disabled = true;
+  setDownloadStale("未导出");
+  renderTemplateAnalysis(null);
+  renderReviewReport(null);
+  renderAgentPlan(null, []);
+  renderEvaluation(null);
+  renderWorkflowTrace([]);
+
+  try {
+    const formData = new FormData(form);
+    currentRequestContext = readRequestContext(formData);
+    const response = await fetch("/api/agent-run", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      renderAgentPlan(data.agent_task, data.agent_plan || []);
+      throw new Error(data.message || data.error || "Agent 执行失败");
+    }
+
+    currentFields = data.fields;
+    currentTemplateId = data.template_id;
+    currentTemplateAnalysis = data.template_analysis;
+    currentReviewReport = data.review_report || null;
+    currentWorkflowTrace = data.workflow_trace || [];
+    currentGenerationBackend = data.generation_backend || null;
+    currentRequestContext = {
+      ...(data.agent_task || {}),
+      material: formData.get("material") || "",
+    };
+
+    if (data.workflow_schema) {
+      workflowSchema = data.workflow_schema;
+      workflowVersion.textContent = workflowSchema.version || "V5";
+    }
+
+    refreshResultTitle(data.fields);
+    fieldCount.textContent = String((data.template_fields || []).length);
+    renderTemplateAnalysis(data.template_analysis);
+    renderAgentPlan(data.agent_task, data.agent_plan || []);
+    renderEvaluation(data.evaluation_report);
+    renderReviewReport(currentReviewReport);
+    renderWorkflowTrace(currentWorkflowTrace);
+    renderPreview(data.fields);
+    setDownloadReady(data.download_url, data.output_name);
+    setPreviewReady(data.preview_url);
+    exportButton.disabled = false;
+    loadHistory();
+    setStatus(data.evaluation_report?.passed ? "Agent 已完成任务并通过自动检查" : "Agent 已完成任务，但自动检查提示需要复核");
+  } catch (error) {
+    setStatus(error.message || "Agent 执行失败", true);
+  } finally {
+    setBusy(false);
+  }
+});
+
 exportButton.addEventListener("click", async () => {
   if (!currentFields || !currentTemplateId) {
     setStatus("请先生成内容", true);
@@ -527,6 +657,8 @@ previewLink.addEventListener("click", (event) => {
 });
 
 renderReviewReport(null);
+renderAgentPlan(null, []);
+renderEvaluation(null);
 renderWorkflowTrace([]);
 loadWorkflowSchema();
 loadHistory();
