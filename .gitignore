@@ -6,6 +6,7 @@ venv/
 outputs/*.tmp
 outputs/uploads/
 outputs/previews/
+outputs/deepseek-test/
 outputs/v2-test/
 outputs/v4-test/
 outputs/web-server*.log

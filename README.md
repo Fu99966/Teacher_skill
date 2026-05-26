@@ -48,6 +48,21 @@ teacher-agent-skills/
 pip install -r requirements.txt
 ```
 
+启用真实 DeepSeek 生成：
+
+```powershell
+copy .env.example .env
+```
+
+然后在 `.env` 中填写：
+
+```text
+DEEPSEEK_API_KEY=你的 DeepSeek API Key
+DEEPSEEK_MODEL=deepseek-v4-pro
+```
+
+如果没有配置 `DEEPSEEK_API_KEY`，系统会自动使用本地草稿生成器，方便离线演示。
+
 启动网页：
 
 ```powershell

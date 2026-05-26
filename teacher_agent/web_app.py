@@ -16,7 +16,7 @@ from .lesson_generator import (
     DEFAULT_GENERATION_DEPTH,
     DEFAULT_STUDENT_LEVEL,
     DEFAULT_TEACHING_STYLE,
-    draft_lesson_fields,
+    draft_lesson_fields_with_source,
     refine_lesson_field,
 )
 from .preview_renderer import render_docx_pdf_preview
@@ -268,7 +268,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             template_path,
             template_analysis,
         ) = self._read_lesson_form()
-        lesson = draft_lesson_fields(
+        lesson, generation_backend = draft_lesson_fields_with_source(
             subject,
             grade,
             title,
@@ -287,6 +287,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                     "template_fields": template_analysis["mapped_fields"],
                     "template_analysis": template_analysis,
                     "template_id": _template_id_for(template_path),
+                    "generation_backend": generation_backend,
                 }
             )
         )
@@ -355,7 +356,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             template_analysis,
         ) = self._read_lesson_form()
 
-        lesson = draft_lesson_fields(
+        lesson, generation_backend = draft_lesson_fields_with_source(
             subject,
             grade,
             title,
@@ -382,6 +383,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                     "output_name": output_name,
                     "download_url": f"/download/{quote(output_name)}",
                     "preview_url": preview_url,
+                    "generation_backend": generation_backend,
                 }
             )
         )

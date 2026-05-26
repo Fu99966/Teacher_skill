@@ -5,6 +5,8 @@ import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from .deepseek_client import chat_json, is_deepseek_configured
+
 
 JSON_FIELD_NAMES = [
     "lesson_title",
@@ -183,7 +185,85 @@ def draft_lesson_fields(
     student_level: str = DEFAULT_STUDENT_LEVEL,
     generation_depth: str = DEFAULT_GENERATION_DEPTH,
 ) -> LessonFields:
-    """Create a deterministic, stage-aware draft before a real LLM is connected."""
+    return draft_lesson_fields_with_source(
+        subject,
+        grade,
+        title,
+        material,
+        class_hour,
+        class_type,
+        teaching_style,
+        student_level,
+        generation_depth,
+    )[0]
+
+
+def draft_lesson_fields_with_source(
+    subject: str,
+    grade: str,
+    title: str,
+    material: str,
+    class_hour: str = "1课时",
+    class_type: str = DEFAULT_CLASS_TYPE,
+    teaching_style: str = DEFAULT_TEACHING_STYLE,
+    student_level: str = DEFAULT_STUDENT_LEVEL,
+    generation_depth: str = DEFAULT_GENERATION_DEPTH,
+) -> tuple[LessonFields, str]:
+    """Create a stage-aware draft.
+
+    When DEEPSEEK_API_KEY is configured, DeepSeek is used for real generation.
+    The deterministic local generator remains as a safe fallback.
+    """
+    fallback = draft_lesson_fields_local(
+        subject,
+        grade,
+        title,
+        material,
+        class_hour,
+        class_type,
+        teaching_style,
+        student_level,
+        generation_depth,
+    )
+    if not is_deepseek_configured():
+        return fallback, "local"
+
+    prompt = build_lesson_prompt(
+        subject,
+        grade,
+        title,
+        material,
+        class_hour,
+        class_type,
+        teaching_style,
+        student_level,
+        generation_depth,
+        JSON_FIELD_NAMES,
+    )
+    try:
+        data = chat_json(
+            prompt,
+            system="你是教师文档 JSON 生成引擎。只输出合法 JSON，不输出 Markdown，不输出解释。",
+            temperature=0.82,
+            max_tokens=7000,
+        )
+        return _lesson_fields_from_dict(data, fallback), "deepseek"
+    except Exception:
+        return fallback, "local_fallback"
+
+
+def draft_lesson_fields_local(
+    subject: str,
+    grade: str,
+    title: str,
+    material: str,
+    class_hour: str = "1课时",
+    class_type: str = DEFAULT_CLASS_TYPE,
+    teaching_style: str = DEFAULT_TEACHING_STYLE,
+    student_level: str = DEFAULT_STUDENT_LEVEL,
+    generation_depth: str = DEFAULT_GENERATION_DEPTH,
+) -> LessonFields:
+    """Create a deterministic, stage-aware draft without an external LLM."""
     stage = infer_school_stage(grade)
     focus = _material_focus(material)
 
@@ -195,6 +275,23 @@ def draft_lesson_fields(
         lesson = _secondary_lesson(subject, grade, title, class_hour, focus)
 
     return _apply_diversity_controls(lesson, stage, focus, class_type, teaching_style, student_level, generation_depth)
+
+
+def _lesson_fields_from_dict(data: dict, fallback: LessonFields) -> LessonFields:
+    merged = fallback.to_dict()
+    for key in JSON_FIELD_NAMES:
+        value = data.get(key)
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            merged[key] = "\n".join(str(item) for item in value)
+        elif isinstance(value, dict):
+            merged[key] = json.dumps(value, ensure_ascii=False, indent=2)
+        else:
+            text = str(value).replace("{{", "").replace("}}", "").strip()
+            if text:
+                merged[key] = text
+    return LessonFields(**merged)
 
 
 def _normalize_option(value: str, fallback: str) -> str:
@@ -407,6 +504,34 @@ def refine_lesson_field(field: str, value: str, action: str = "more_vivid", inst
     custom = (instruction or "").strip()
     if not text:
         text = "请先生成或填写该字段内容。"
+
+    if is_deepseek_configured():
+        prompt = f"""请对一个教案字段做局部优化，只返回 JSON。
+
+字段名：{field}
+优化动作：{label}
+特别要求：{custom or "无"}
+
+原内容：
+{text}
+
+输出要求：
+1. 只输出一个 JSON 对象。
+2. JSON key 必须是 "value"。
+3. 不要输出 Markdown，不要解释。
+4. 不要出现模板占位符。"""
+        try:
+            data = chat_json(
+                prompt,
+                system="你是教师教案局部润色引擎。只输出合法 JSON。",
+                temperature=0.76,
+                max_tokens=2500,
+            )
+            refined = str(data.get("value") or "").replace("{{", "").replace("}}", "").strip()
+            if refined:
+                return refined
+        except Exception:
+            pass
 
     if action == "shorten":
         lines = [line.strip() for line in text.splitlines() if line.strip()]

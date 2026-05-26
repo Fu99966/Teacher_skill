@@ -41,6 +41,12 @@ const previewOrder = [
   "reflection",
 ];
 
+const backendLabels = {
+  deepseek: "DeepSeek V4 Pro",
+  local: "本地草稿",
+  local_fallback: "DeepSeek 失败，已用本地草稿",
+};
+
 let currentFields = null;
 let currentTemplateId = null;
 let currentDownloadUrl = "#";
@@ -242,7 +248,7 @@ form.addEventListener("submit", async (event) => {
     renderTemplateAnalysis(data.template_analysis);
     renderPreview(data.fields);
     exportButton.disabled = false;
-    setStatus("内容已生成");
+    setStatus(`内容已生成（${backendLabels[data.generation_backend] || "生成器"}）`);
   } catch (error) {
     setStatus(error.message || "生成失败", true);
   } finally {
