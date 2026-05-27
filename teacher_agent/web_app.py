@@ -8,7 +8,7 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .agent_core.executor import AgentExecutor
 from .agent_core.planner import build_plan
@@ -74,6 +74,18 @@ def _template_from_id(template_id: str) -> Path:
     if UPLOAD_DIR.resolve() not in path.parents or not path.exists():
         raise ValueError("模板已失效，请重新上传模板")
     return path
+
+
+def _template_mode_label(template_path: Path) -> str:
+    return "system" if template_path == SAMPLE_TEMPLATE else "upload"
+
+
+def _beginner_summary(evaluation_report: dict | None, is_generic_material: bool, template_mode: str) -> str:
+    checks_ok = bool(evaluation_report and evaluation_report.get("passed"))
+    quality_text = "已完成教研审阅和自动检查" if checks_ok else "已完成教案生成，建议下载前再快速预览"
+    template_text = "系统标准模板" if template_mode == "system" else "学校上传模板"
+    material_text = "本次未填写教材内容，已生成通用版。" if is_generic_material else "已结合教材内容生成。"
+    return f"{quality_text}，并写入{template_text}。{material_text}"
 
 
 class TeacherAgentHandler(BaseHTTPRequestHandler):
@@ -218,6 +230,15 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
 
+        if parsed.path == "/api/agent-preview":
+            try:
+                self._handle_agent_preview()
+            except ValueError as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
         if parsed.path == "/api/agent-run":
             try:
                 self._handle_agent_run()
@@ -236,18 +257,21 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
 
-    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, str, str, str, str, Path, dict]:
+    def _read_multipart_form(self) -> cgi.FieldStorage:
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             raise ValueError("请使用表单提交")
 
-        form = cgi.FieldStorage(
+        return cgi.FieldStorage(
             fp=self.rfile,
             headers=self.headers,
             environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": content_type},
             encoding="utf-8",
             errors="replace",
         )
+
+    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, str, str, str, str, Path, dict]:
+        form = self._read_multipart_form()
 
         subject = _form_value(form, "subject", "语文")
         grade = _form_value(form, "grade", "四年级")
@@ -274,6 +298,60 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             generation_depth,
             template_path,
             template_analysis,
+        )
+
+    def _read_agent_form(self) -> tuple[
+        cgi.FieldStorage,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        Path,
+        dict,
+        str,
+        bool,
+    ]:
+        form = self._read_multipart_form()
+
+        subject = _form_value(form, "subject", "")
+        grade = _form_value(form, "grade", "")
+        title = _form_value(form, "title", "")
+        class_hour = _form_value(form, "class_hour", "1课时")
+        material = _form_value(form, "material", "")
+        class_type = _form_value(form, "class_type", DEFAULT_CLASS_TYPE)
+        teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
+        student_level = _form_value(form, "student_level", DEFAULT_STUDENT_LEVEL)
+        generation_depth = _form_value(form, "generation_depth", DEFAULT_GENERATION_DEPTH)
+        template_mode = _form_value(form, "template_mode", "upload").strip() or "upload"
+        if template_mode not in {"system", "upload"}:
+            raise ValueError("模板模式无效，请选择系统模板或上传模板")
+        if template_mode == "upload":
+            template_item = form["template"] if "template" in form else None
+            if template_item is None or not template_item.filename:
+                raise ValueError("请上传学校 Word 模板，或选择使用系统标准模板")
+
+        template_path = self._save_template(form, allow_sample=template_mode == "system")
+        template_analysis = analyze_template(template_path)
+        return (
+            form,
+            subject,
+            grade,
+            title,
+            class_hour,
+            material,
+            class_type,
+            teaching_style,
+            student_level,
+            generation_depth,
+            template_path,
+            template_analysis,
+            _template_mode_label(template_path),
+            not material.strip(),
         )
 
     def _handle_draft(self) -> None:
@@ -324,6 +402,63 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         refined = refine_lesson_field(field, value, action, instruction)
         self._send(*_json_bytes({"field": field, "value": refined}))
 
+    def _read_agent_preview_payload(self) -> dict:
+        content_type = self.headers.get("Content-Type", "")
+        if "application/json" in content_type:
+            content_length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(content_length).decode("utf-8")
+            return json.loads(body or "{}")
+
+        if "multipart/form-data" in content_type:
+            form = self._read_multipart_form()
+            return {
+                "agent_request": _form_value(form, "agent_request", ""),
+                "subject": _form_value(form, "subject", ""),
+                "grade": _form_value(form, "grade", ""),
+                "title": _form_value(form, "title", ""),
+                "class_hour": _form_value(form, "class_hour", ""),
+                "class_type": _form_value(form, "class_type", ""),
+                "teaching_style": _form_value(form, "teaching_style", ""),
+                "student_level": _form_value(form, "student_level", ""),
+                "generation_depth": _form_value(form, "generation_depth", ""),
+            }
+
+        if "application/x-www-form-urlencoded" in content_type:
+            content_length = int(self.headers.get("Content-Length", "0") or "0")
+            values = parse_qs(self.rfile.read(content_length).decode("utf-8"), keep_blank_values=True)
+            return {key: items[0] if items else "" for key, items in values.items()}
+
+        raise ValueError("请使用 JSON 或表单提交")
+
+    def _handle_agent_preview(self) -> None:
+        payload = self._read_agent_preview_payload()
+        agent_request = str(payload.get("agent_request") or "")
+        if not agent_request.strip():
+            raise ValueError("请先输入备课需求")
+
+        defaults = {
+            "subject": str(payload.get("subject") or ""),
+            "grade": str(payload.get("grade") or ""),
+            "title": str(payload.get("title") or ""),
+            "class_hour": str(payload.get("class_hour") or ""),
+            "class_type": str(payload.get("class_type") or ""),
+            "teaching_style": str(payload.get("teaching_style") or ""),
+            "student_level": str(payload.get("student_level") or ""),
+            "generation_depth": str(payload.get("generation_depth") or ""),
+        }
+        task = route_task(agent_request, defaults)
+        plan = build_plan(task)
+        self._send(
+            *_json_bytes(
+                {
+                    "agent_task": task.to_dict(),
+                    "agent_plan": [step.to_dict() for step in plan],
+                    "needs_input": bool(task.missing_fields),
+                    "missing_fields": task.missing_fields,
+                }
+            )
+        )
+
     def _handle_agent_run(self) -> None:
         (
             form,
@@ -338,15 +473,17 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             generation_depth,
             template_path,
             template_analysis,
-        ) = self._read_lesson_form()
+            actual_template_mode,
+            is_generic_material,
+        ) = self._read_agent_form()
         agent_request = _form_value(form, "agent_request", "")
         if not agent_request.strip():
             raise ValueError("请先输入 Agent 指令")
 
         defaults = {
-            "subject": subject if subject != "语文" else "",
-            "grade": grade if grade != "四年级" else "",
-            "title": title if title != "未命名课题" else "",
+            "subject": subject,
+            "grade": grade,
+            "title": title,
             "class_hour": class_hour,
             "class_type": class_type if class_type != DEFAULT_CLASS_TYPE else "",
             "teaching_style": teaching_style if teaching_style != DEFAULT_TEACHING_STYLE else "",
@@ -428,6 +565,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "preview_url": export_result.get("preview_url"),
             "workflow_trace": context.get("workflow_trace") or draft_result.get("workflow_trace") or [],
             "history_item": context.get("history_item"),
+            "template_mode": actual_template_mode,
+            "is_generic_material": is_generic_material,
+            "beginner_summary": _beginner_summary(
+                evaluation_report=context.get("evaluation_report"),
+                is_generic_material=is_generic_material,
+                template_mode=actual_template_mode,
+            ),
         }
         self._send(*_json_bytes(payload, HTTPStatus.INTERNAL_SERVER_ERROR if execution.failed else HTTPStatus.OK))
 
@@ -545,9 +689,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             )
         )
 
-    def _save_template(self, form: cgi.FieldStorage) -> Path:
+    def _save_template(self, form: cgi.FieldStorage, allow_sample: bool = False) -> Path:
         template_item = form["template"] if "template" in form else None
         if template_item is None or not template_item.filename:
+            if allow_sample:
+                if not SAMPLE_TEMPLATE.exists():
+                    create_sample_template(SAMPLE_TEMPLATE)
+                return SAMPLE_TEMPLATE
             raise ValueError("请上传学校 Word 模板")
 
         original_name = Path(template_item.filename).name
