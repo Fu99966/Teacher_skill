@@ -110,6 +110,9 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Length", str(len(body)))
         if filename:
             self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(filename)}")
@@ -217,6 +220,9 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             return
 
         self._send(*_json_bytes({"ok": True}), include_body=False)
+
+    def do_OPTIONS(self) -> None:
+        self._send(HTTPStatus.NO_CONTENT, b"", "text/plain; charset=utf-8", include_body=False)
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)

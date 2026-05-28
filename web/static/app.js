@@ -169,6 +169,12 @@ let activeMode = localStorage.getItem("teacherSkillMode") || "beginner";
 let beginnerTask = null;
 let beginnerStep = "intent";
 let beginnerDownloadIsFresh = false;
+const localApiOrigins = new Set(["http://127.0.0.1:8765", "http://localhost:8765"]);
+
+function apiFetch(path, options = {}) {
+  const shouldUseLocalBackend = path.startsWith("/api/") && !localApiOrigins.has(window.location.origin);
+  return fetch(shouldUseLocalBackend ? `http://127.0.0.1:8765${path}` : path, options);
+}
 
 function setStatus(message, isError = false) {
   statusBox.textContent = message;
@@ -191,7 +197,7 @@ async function readApiJson(response) {
   } catch (error) {
     const preview = text.trim().slice(0, 80);
     if (preview.startsWith("<!DOCTYPE") || preview.startsWith("<html") || preview.startsWith("<")) {
-      throw new Error("接口返回了网页而不是 JSON。请确认本地 Teacher_skill 后端正在运行，并刷新页面后重试。");
+      throw new Error(`接口返回了网页而不是 JSON。当前请求地址：${response.url || "未知"}。请打开 http://127.0.0.1:8765/ 后重试。`);
     }
     throw new Error("接口返回内容不是合法 JSON，请检查本地服务日志后重试。");
   }
@@ -209,7 +215,7 @@ async function loadLlmHealth(probe = false) {
   llmProbeButton.disabled = true;
   llmPillStatus.textContent = probe ? "诊断中" : "检查中";
   try {
-    const response = await fetch(`/api/llm-health${probe ? "?probe=1" : ""}`);
+    const response = await apiFetch(`/api/llm-health${probe ? "?probe=1" : ""}`);
     const data = await readApiJson(response);
     renderLlmStatus(data.llm);
     if (probe && data.llm?.message) {
@@ -488,7 +494,7 @@ function renderHistory(items = []) {
 
 async function loadWorkflowSchema() {
   try {
-    const response = await fetch("/api/workflow-schema");
+    const response = await apiFetch("/api/workflow-schema");
     workflowSchema = await readApiJson(response);
     workflowVersion.textContent = workflowSchema.version || "Teacher_skill V7";
   } catch {
@@ -500,7 +506,7 @@ async function loadWorkflowSchema() {
 
 async function loadHistory() {
   try {
-    const response = await fetch("/api/history");
+    const response = await apiFetch("/api/history");
     const data = await readApiJson(response);
     renderHistory(data.items || []);
   } catch {
@@ -747,7 +753,7 @@ async function exportCurrentDocument() {
   }
 
   const editedFields = collectEditedFields(activeEditorRoot());
-  const response = await fetch("/api/export", {
+  const response = await apiFetch("/api/export", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -865,7 +871,7 @@ async function previewBeginnerIntent() {
   setBusy(true);
   showBeginnerNotice("正在理解你的备课需求...");
   try {
-    const response = await fetch("/api/agent-preview", {
+    const response = await apiFetch("/api/agent-preview", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -922,7 +928,7 @@ async function runBeginnerAgent() {
   const timer = beginFakeProgress();
 
   try {
-    const response = await fetch("/api/agent-run", {
+    const response = await apiFetch("/api/agent-run", {
       method: "POST",
       body: formData,
     });
@@ -981,7 +987,7 @@ form.addEventListener("submit", async (event) => {
   try {
     const formData = new FormData(form);
     currentRequestContext = readRequestContext(formData);
-    const response = await fetch("/api/draft", {
+    const response = await apiFetch("/api/draft", {
       method: "POST",
       body: formData,
     });
@@ -1036,7 +1042,7 @@ agentRunButton.addEventListener("click", async () => {
     const formData = new FormData(form);
     formData.append("template_mode", "upload");
     currentRequestContext = readRequestContext(formData);
-    const response = await fetch("/api/agent-run", {
+    const response = await apiFetch("/api/agent-run", {
       method: "POST",
       body: formData,
     });
@@ -1110,7 +1116,7 @@ async function handleRefineClick(event) {
   }
 
   try {
-    const response = await fetch("/api/refine-field", {
+    const response = await apiFetch("/api/refine-field", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

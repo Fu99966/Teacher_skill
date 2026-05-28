@@ -10,6 +10,7 @@ outputs/deepseek-test/
 outputs/v2-test/
 outputs/v4-test/
 outputs/web-server*.log
+outputs/server.log
 outputs/web-server.pid
 outputs/*.sqlite3
 outputs/*-教案-*.docx
