@@ -133,6 +133,77 @@ def coerce_dynamic_fields(data: dict[str, Any] | dict, dynamic_fields: list[str]
     return {field: _clean_text(source.get(field)) for field in fields}
 
 
+def _field_label_hint(field_name: str) -> str:
+    label = field_name.replace("_", " ").replace("-", " ")
+    known = {
+        "lesson_title": "课题名称",
+        "subject": "学科",
+        "grade": "年级",
+        "class_hour": "课时",
+        "teaching_goals": "教学目标",
+        "key_points": "教学重点",
+        "difficult_points": "教学难点",
+        "teaching_key_difficult": "教学重难点",
+        "teaching_preparation": "教学准备",
+        "student_analysis": "学情分析",
+        "teaching_process": "教学过程",
+        "teacher_activity": "教师活动",
+        "student_activity": "学生活动",
+        "design_intent": "设计意图",
+        "blackboard_design": "板书设计",
+        "homework": "作业设计",
+        "reflection": "教学反思",
+        "warm_up": "导入或热身环节",
+        "safety_rules": "安全注意事项",
+        "safety_precautions": "安全注意事项",
+        "core_training": "核心训练",
+        "assessment": "评价方式",
+    }
+    return known.get(field_name, label)
+
+
+def _local_fallback_fields(
+    *,
+    subject: str,
+    grade: str,
+    title: str,
+    material: str,
+    class_hour: str,
+    dynamic_fields: list[str],
+) -> dict[str, str]:
+    material_hint = re.sub(r"\s+", " ", material).strip()
+    if len(material_hint) > 140:
+        material_hint = material_hint[:140] + "..."
+    base: dict[str, str] = {
+        "lesson_title": title,
+        "subject": subject,
+        "grade": grade,
+        "class_hour": class_hour,
+        "teaching_goals": f"1. 知识目标：理解《{title}》的核心内容与关键方法。\n2. 能力目标：能结合材料完成分析、表达和迁移应用。\n3. 素养目标：在学习过程中提升合作探究与反思能力。",
+        "key_points": f"围绕《{title}》掌握本课核心知识、关键方法和课堂产出要求。",
+        "difficult_points": "将抽象知识转化为可观察、可操作、可表达的学习任务，并帮助不同层次学生完成理解迁移。",
+        "teaching_key_difficult": f"重点：理解《{title}》的核心知识与方法。\n难点：把知识迁移到新的情境任务中。",
+        "teaching_preparation": "多媒体课件、学习任务单、板书材料；学生课前阅读教材并标注疑问。",
+        "student_analysis": f"{grade}学生已有一定基础，但对《{title}》中的关键概念和迁移应用仍需要教师提供支架。",
+        "teaching_process": f"一、导入新课：教师创设与《{title}》相关的问题情境，学生交流已有经验。\n二、新知探究：围绕教材内容组织阅读、观察、讨论和归纳。\n三、巩固应用：完成基础练习与变式任务，教师即时反馈。\n四、课堂总结：学生梳理本课收获和仍需追问的问题。",
+        "teacher_activity": "创设情境、提出问题、组织探究、示范方法、反馈评价并总结提升。",
+        "student_activity": "观察材料、独立思考、小组交流、完成任务单并进行展示或互评。",
+        "design_intent": "通过问题驱动和分层任务，让学生经历理解、应用、表达和反思的完整学习过程。",
+        "blackboard_design": f"{title}\n一、核心问题\n二、关键方法\n三、课堂任务\n四、总结提升",
+        "homework": "基础题：整理本课关键知识。\n提升题：完成一道迁移应用任务。\n拓展题：结合生活或教材补充材料提出一个探究问题。",
+        "reflection": "课后重点观察学生是否真正掌握核心方法，是否能在新情境中表达和应用；必要时补充分层练习。",
+        "warm_up": f"以《{title}》相关图片、问题或生活情境导入，快速唤起学生已有经验。",
+        "safety_rules": "活动前明确材料使用和课堂秩序要求；实验或操作环节需按教师指令进行。",
+        "safety_precautions": "提醒学生按规范操作，注意器材、用电、走动和小组协作安全。",
+        "core_training": f"围绕《{title}》设置基础识记、方法应用和迁移表达三个层级训练。",
+        "assessment": "采用课堂观察、任务单完成情况、小组展示和出口卡进行过程性评价。",
+    }
+    if material_hint:
+        base["teaching_process"] += f"\n教材依据：{material_hint}"
+
+    return {field: base.get(field, f"围绕《{title}》生成“{_field_label_hint(field)}”相关内容。") for field in dynamic_fields}
+
+
 def build_lesson_prompt(
     subject: str,
     grade: str,
@@ -144,6 +215,7 @@ def build_lesson_prompt(
     student_level: str = DEFAULT_STUDENT_LEVEL,
     generation_depth: str = DEFAULT_GENERATION_DEPTH,
     dynamic_fields: list[str] | None = None,
+    template_context: dict[str, Any] | None = None,
     creative_mode: str = "",
     anti_repetition_context: str = "",
     few_shot_examples: str = "",
@@ -168,6 +240,14 @@ def build_lesson_prompt(
 # 优秀样例参考
 以下样例只用于学习质量、颗粒度和课堂活动设计方式，不能照抄措辞：
 {few_shot_examples.strip()}
+"""
+
+    context_block = ""
+    if template_context:
+        context_block = f"""
+# 模板字段上下文
+以下信息来自 Word 模板解析，用于理解字段语义和填充位置。请结合 label、row_text、source 推断未知字段含义：
+{json.dumps(template_context, ensure_ascii=False, indent=2)}
 """
 
     return f"""
@@ -197,6 +277,7 @@ def build_lesson_prompt(
 
 {anti_repetition_block}
 {few_shot_block}
+{context_block}
 
 # 严格输出限制
 1. 绝对不要输出 Markdown，也不要输出解释性前言或后语。
@@ -222,7 +303,7 @@ def check_generation_health(probe: bool = False) -> Any:
     return check_deepseek_health(probe=probe)
 
 
-def draft_lesson_fields(
+def _draft_lesson_fields_ai(
     subject: str,
     grade: str,
     title: str,
@@ -234,6 +315,7 @@ def draft_lesson_fields(
     generation_depth: str = DEFAULT_GENERATION_DEPTH,
     dynamic_fields: list[str] | None = None,
     strict_ai: bool = False,
+    template_context: dict[str, Any] | None = None,
     creative_mode: str = "",
     anti_repetition_context: str = "",
     few_shot_examples: str = "",
@@ -250,6 +332,7 @@ def draft_lesson_fields(
         student_level=student_level,
         generation_depth=generation_depth,
         dynamic_fields=fields,
+        template_context=template_context,
         creative_mode=creative_mode,
         anti_repetition_context=anti_repetition_context,
         few_shot_examples=few_shot_examples,
@@ -272,6 +355,42 @@ def draft_lesson_fields(
     return coerce_dynamic_fields(raw_data, fields)
 
 
+def draft_lesson_fields(
+    subject: str,
+    grade: str,
+    title: str,
+    material: str,
+    class_hour: str = "1璇炬椂",
+    class_type: str = DEFAULT_CLASS_TYPE,
+    teaching_style: str = DEFAULT_TEACHING_STYLE,
+    student_level: str = DEFAULT_STUDENT_LEVEL,
+    generation_depth: str = DEFAULT_GENERATION_DEPTH,
+    dynamic_fields: list[str] | None = None,
+    strict_ai: bool = False,
+    template_context: dict[str, Any] | None = None,
+    creative_mode: str = "",
+    anti_repetition_context: str = "",
+    few_shot_examples: str = "",
+) -> dict[str, str]:
+    return draft_lesson_fields_with_source(
+        subject=subject,
+        grade=grade,
+        title=title,
+        material=material,
+        class_hour=class_hour,
+        class_type=class_type,
+        teaching_style=teaching_style,
+        student_level=student_level,
+        generation_depth=generation_depth,
+        dynamic_fields=dynamic_fields,
+        strict_ai=strict_ai,
+        template_context=template_context,
+        creative_mode=creative_mode,
+        anti_repetition_context=anti_repetition_context,
+        few_shot_examples=few_shot_examples,
+    )[0]
+
+
 def draft_lesson_fields_with_source(
     subject: str,
     grade: str,
@@ -284,28 +403,46 @@ def draft_lesson_fields_with_source(
     generation_depth: str = DEFAULT_GENERATION_DEPTH,
     dynamic_fields: list[str] | None = None,
     strict_ai: bool = False,
+    template_context: dict[str, Any] | None = None,
     creative_mode: str = "",
     anti_repetition_context: str = "",
     few_shot_examples: str = "",
 ) -> tuple[dict[str, str], str]:
-    fields = draft_lesson_fields(
-        subject=subject,
-        grade=grade,
-        title=title,
-        material=material,
-        class_hour=class_hour,
-        class_type=class_type,
-        teaching_style=teaching_style,
-        student_level=student_level,
-        generation_depth=generation_depth,
-        dynamic_fields=dynamic_fields,
-        strict_ai=strict_ai,
-        creative_mode=creative_mode,
-        anti_repetition_context=anti_repetition_context,
-        few_shot_examples=few_shot_examples,
-    )
-    load_local_env()
-    return fields, os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro").strip() or "deepseek-v4-pro"
+    fields = _normalize_dynamic_fields(dynamic_fields)
+    try:
+        data = _draft_lesson_fields_ai(
+            subject=subject,
+            grade=grade,
+            title=title,
+            material=material,
+            class_hour=class_hour,
+            class_type=class_type,
+            teaching_style=teaching_style,
+            student_level=student_level,
+            generation_depth=generation_depth,
+            dynamic_fields=fields,
+            strict_ai=strict_ai,
+            template_context=template_context,
+            creative_mode=creative_mode,
+            anti_repetition_context=anti_repetition_context,
+            few_shot_examples=few_shot_examples,
+        )
+        load_local_env()
+        return data, os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro").strip() or "deepseek-v4-pro"
+    except Exception:
+        if strict_ai:
+            raise
+        return (
+            _local_fallback_fields(
+                subject=subject,
+                grade=grade,
+                title=title,
+                material=material,
+                class_hour=class_hour,
+                dynamic_fields=fields,
+            ),
+            "local_fallback",
+        )
 
 
 def draft_lesson_document_fields_with_source(
@@ -320,6 +457,7 @@ def draft_lesson_document_fields_with_source(
     generation_depth: str = DEFAULT_GENERATION_DEPTH,
     template_fields: list[str] | None = None,
     strict_ai: bool = False,
+    template_context: dict[str, Any] | None = None,
     creative_mode: str = "",
     anti_repetition_context: str = "",
     few_shot_examples: str = "",
@@ -336,6 +474,7 @@ def draft_lesson_document_fields_with_source(
         generation_depth=generation_depth,
         dynamic_fields=template_fields or JSON_FIELD_NAMES,
         strict_ai=strict_ai,
+        template_context=template_context,
         creative_mode=creative_mode,
         anti_repetition_context=anti_repetition_context,
         few_shot_examples=few_shot_examples,

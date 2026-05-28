@@ -100,6 +100,9 @@ class TeacherWorkflow:
         self._mark("app_input", "应用输入", "done", "已接收课程信息、Word 模板和可选补充资料。")
 
         template_analysis = template_analysis or analyze_template(template_path)
+        if template_analysis.get("needs_template_markers"):
+            message = "; ".join(template_analysis.get("errors") or ["模板中未识别到可填字段。"])
+            raise ValueError(message)
         mode = "占位符" if template_analysis["placeholders"] else "表格标签"
         self._mark(
             "template_analyzer",
@@ -147,6 +150,7 @@ class TeacherWorkflow:
             request.generation_depth,
             template_fields,
             request.strict_ai,
+            template_analysis.get("field_context"),
             request.creative_mode,
             anti_repetition_context,
             few_shot_examples,
@@ -236,7 +240,7 @@ class TeacherWorkflow:
         output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
         output_path = output_dir / output_name
 
-        fill_docx_template(template_path, fields, output_path)
+        fill_report = fill_docx_template(template_path, fields, output_path)
         template_analysis = analyze_template(template_path)
         preview_pdf = render_docx_pdf_preview(output_path, preview_dir)
         preview_url = f"/preview/{quote(preview_pdf.name)}" if preview_pdf else None
@@ -247,5 +251,6 @@ class TeacherWorkflow:
             "download_url": f"/download/{quote(output_name)}",
             "preview_url": preview_url,
             "template_analysis": template_analysis,
+            "fill_report": fill_report.to_dict(),
             "workflow_trace": [event.to_dict() for event in self.trace],
         }

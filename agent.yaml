@@ -1,7 +1,7 @@
 name: Teacher_skill
 display_name: 教案助手 Teacher Skill
-version: 0.1.0
-description: 使用 AgentSkills 风格组织教师工作技能，支持教案生成、Word 模板填充、文档润色和练习题生成。
+version: 0.2.0
+description: 面向教师的 Word 教案模板识别、动态字段生成和 docx 填充智能体。
 runtime_style: agentskills-runtime
 entrypoints:
   cli: python -m teacher_agent.cli
@@ -11,11 +11,12 @@ skills:
   - skills/document-editor
   - skills/worksheet-generator
 principles:
-  - 模板决定格式
-  - AI 只生成内容
-  - 程序按模板字段填充
-  - 保留学校原始 Word 模板格式
+  - Word 模板决定格式
+  - AI 只生成字段内容
+  - JSON key 必须来自模板字段
+  - 尽量保留学校原始 Word 模板格式
 default_workflow:
   - scan-template
   - draft-lesson
   - fill-template
+  - generate

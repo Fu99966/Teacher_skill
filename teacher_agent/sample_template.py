@@ -101,22 +101,16 @@ def _add_info_table(document: Document) -> None:
     table.style = "Table Grid"
     table.autofit = True
 
-    pairs = [
-        INFO_FIELDS[0],
-        INFO_FIELDS[1],
-        INFO_FIELDS[2],
-        INFO_FIELDS[3],
-    ]
     rows = [
-        [pairs[0][0], _placeholder(pairs[0][1]), pairs[1][0], _placeholder(pairs[1][1])],
-        [pairs[2][0], _placeholder(pairs[2][1]), pairs[3][0], _placeholder(pairs[3][1])],
+        [INFO_FIELDS[0][0], _placeholder(INFO_FIELDS[0][1]), INFO_FIELDS[1][0], _placeholder(INFO_FIELDS[1][1])],
+        [INFO_FIELDS[2][0], _placeholder(INFO_FIELDS[2][1]), INFO_FIELDS[3][0], _placeholder(INFO_FIELDS[3][1])],
     ]
 
     for row_index, row_values in enumerate(rows):
         row = table.rows[row_index]
         for cell_index, value in enumerate(row_values):
             is_label = cell_index % 2 == 0
-            _write_cell(cell=row.cells[cell_index], text=value, bold=is_label, fill="EAF2FF" if is_label else None)
+            _write_cell(row.cells[cell_index], value, bold=is_label, fill="EAF2FF" if is_label else None)
 
     spacer = document.add_paragraph()
     spacer.paragraph_format.space_after = Pt(4)

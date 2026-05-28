@@ -80,6 +80,7 @@ def build_lesson_tool_registry(
             output_path=output_path,
             download_url=export.get("download_url"),
             template_analysis=template_analysis,
+            fill_report=export.get("fill_report"),
         )
         context["evaluation_report"] = report.to_dict()
         return {"passed": report.passed, "summary": report.summary}

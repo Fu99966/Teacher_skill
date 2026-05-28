@@ -1,17 +1,17 @@
 ---
 name: document-template-filler
-description: 当用户需要把 AI 生成的教案、试卷、通知或其他文本字段填入 Word docx 模板，并尽量保持原模板字体、表格、页眉页脚、段落样式不变时使用。
+description: 当用户需要把结构化 JSON 内容填入 Word docx 模板，并尽量保持原模板字体、段落、表格、页眉页脚和布局时使用。
 ---
 
 # Document Template Filler
 
 ## 核心原则
 
-模板决定格式，AI 只提供内容，程序只替换占位符。
+Word 模板决定格式，AI 只提供内容。程序只识别字段并写入内容，不重建整份文档。
 
-## 占位符格式
+## 支持的模板
 
-使用双大括号：
+1. 占位符模板：
 
 ```text
 {{lesson_title}}
@@ -19,26 +19,32 @@ description: 当用户需要把 AI 生成的教案、试卷、通知或其他文
 {{teaching_process}}
 ```
 
-## 工作流程
+2. 学校原表格模板：
 
-1. 扫描 docx 模板，识别所有 `{{field_name}}`。
-2. 检查 AI 输出 JSON 是否包含对应字段。
-3. 将 JSON 值填入模板。
-4. 输出新的 docx。
-5. 不主动改变字体、字号、表格边框、页眉页脚。
+```text
+教学目标    [空白单元格]
+教学过程    [空白单元格]
+作业设计    [空白单元格]
+```
 
-## 模板制作建议
+3. 混合模板：同一个 docx 中既有 `{{field}}`，也有表格标签。
 
-- 一个占位符尽量放在同一个 Word 文本片段中。
-- 不要把 `{{`、字段名、`}}` 分别设置不同样式。
-- 表格模板可以直接把占位符放在单元格里。
-- 长文本字段建议独占一行或一个单元格。
+## 填充报告
 
-## 对应脚本
+填充后必须输出：
 
-使用项目中的命令：
+- `filled_fields`
+- `missing_fields`
+- `remaining_placeholders`
+- `placeholder_fields_filled`
+- `table_fields_filled`
+
+缺失字段不能删除原占位符，必须在报告中标记。
+
+## 命令
 
 ```powershell
 python -m teacher_agent.cli scan-template templates\your_template.docx
-python -m teacher_agent.cli fill-template --template templates\your_template.docx --data outputs\lesson_fields.json --output outputs\教案.docx
+python -m teacher_agent.cli fill-template --template templates\your_template.docx --data outputs\lesson_fields.json --output outputs\lesson.docx
+python -m teacher_agent.cli generate --template templates\your_template.docx --subject 语文 --grade 四年级 --title 桂林山水 --material-file examples\sample_material.md --output outputs\桂林山水教案.docx --no-strict-ai
 ```
