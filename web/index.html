@@ -20,6 +20,11 @@
           <button type="button" id="beginner-mode-button" class="mode-button" role="tab" aria-selected="true">新手模式</button>
           <button type="button" id="professional-mode-button" class="mode-button" role="tab" aria-selected="false">专业模式</button>
         </div>
+        <div class="llm-pill" id="llm-pill" aria-live="polite">
+          <span>AI 服务</span>
+          <strong id="llm-pill-status">检查中</strong>
+          <button type="button" id="llm-probe-button">诊断</button>
+        </div>
       </header>
 
       <main class="app-main">
@@ -161,6 +166,25 @@
                   ></textarea>
                 </label>
                 <p class="soft-note" id="beginner-generic-note">不填写教材内容也能生成，但贴入教材后会更贴合课文。</p>
+                <div class="beginner-options">
+                  <label>
+                    <span>生成风格</span>
+                    <select id="beginner-creative-mode">
+                      <option value="更像公开课">更像公开课</option>
+                      <option value="更有课堂互动">更有课堂互动</option>
+                      <option value="更适合基础班">更适合基础班</option>
+                      <option value="更有创新活动">更有创新活动</option>
+                      <option value="常规稳妥">常规稳妥</option>
+                    </select>
+                  </label>
+                  <label class="toggle-line">
+                    <input id="beginner-strict-ai" type="checkbox" checked />
+                    <span>
+                      <strong>严格 AI 模式</strong>
+                      <small>DeepSeek 失败时停止并显示原因，不再悄悄用模板草稿。</small>
+                    </span>
+                  </label>
+                </div>
                 <div class="actions split-actions">
                   <button type="button" class="glass-button secondary" id="beginner-back-to-confirm">返回确认</button>
                   <button type="button" class="glass-button primary" id="beginner-generate-button">生成教案</button>
@@ -329,6 +353,23 @@
                     <option value="深度">深度</option>
                   </select>
                 </label>
+                <label>
+                  <span>生成风格</span>
+                  <select name="creative_mode">
+                    <option value="常规稳妥">常规稳妥</option>
+                    <option value="更像公开课">更像公开课</option>
+                    <option value="更有课堂互动">更有课堂互动</option>
+                    <option value="更适合基础班">更适合基础班</option>
+                    <option value="更有创新活动">更有创新活动</option>
+                  </select>
+                </label>
+                <label class="toggle-line compact-toggle">
+                  <input name="strict_ai" type="checkbox" value="1" />
+                  <span>
+                    <strong>严格 AI 模式</strong>
+                    <small>失败时显示原因，不使用本地草稿兜底。</small>
+                  </span>
+                </label>
               </div>
 
               <label class="wide-label file-drop">
@@ -382,6 +423,10 @@
               <div>
                 <span>模板模式</span>
                 <strong id="template-mode">待识别</strong>
+              </div>
+              <div>
+                <span>生成来源</span>
+                <strong id="backend-name">待生成</strong>
               </div>
               <div class="summary-wide">
                 <span>输出文件</span>

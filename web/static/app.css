@@ -497,7 +497,7 @@ textarea:focus {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: 142px 168px 1fr;
+  grid-template-columns: 132px 148px 158px 1fr;
   gap: 10px;
   margin-top: 14px;
 }
@@ -837,6 +837,51 @@ textarea:focus {
   box-shadow: 0 10px 22px rgba(52, 120, 246, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
+.llm-pill {
+  min-height: 48px;
+  display: inline-grid;
+  grid-template-columns: auto auto auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 8px;
+  padding: 6px 8px 6px 12px;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.llm-pill span {
+  color: rgba(17, 24, 39, 0.56);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.llm-pill strong {
+  color: rgba(17, 24, 39, 0.76);
+  font-size: 13px;
+}
+
+.llm-pill[data-status="ok"] strong,
+.llm-pill[data-status="configured"] strong {
+  color: var(--green);
+}
+
+.llm-pill[data-status="error"] strong,
+.llm-pill[data-status="not_configured"] strong {
+  color: var(--danger);
+}
+
+.llm-pill button {
+  min-height: 34px;
+  border: 1px solid rgba(52, 120, 246, 0.2);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--blue-dark);
+  background: rgba(255, 255, 255, 0.56);
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .beginner-workflow {
   display: grid;
   gap: 16px;
@@ -1067,6 +1112,54 @@ textarea:focus {
   margin: 12px 0 0;
 }
 
+.beginner-options {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+
+.toggle-line {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.toggle-line input {
+  width: 20px;
+  height: 20px;
+  box-shadow: none;
+}
+
+.toggle-line span,
+.toggle-line strong,
+.toggle-line small {
+  display: block;
+}
+
+.toggle-line strong {
+  margin-bottom: 3px;
+  color: rgba(17, 24, 39, 0.76);
+  font-size: 14px;
+}
+
+.toggle-line small {
+  color: rgba(17, 24, 39, 0.56);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.compact-toggle {
+  padding: 8px 10px;
+}
+
 .progress-list {
   display: grid;
   gap: 12px;
@@ -1222,6 +1315,11 @@ textarea:focus {
     flex: 1;
   }
 
+  .llm-pill {
+    width: 100%;
+    grid-template-columns: auto 1fr auto;
+  }
+
   .topbar-meta {
     justify-items: start;
     width: 100%;
@@ -1233,6 +1331,7 @@ textarea:focus {
 
   .beginner-hero,
   .wizard-layout,
+  .beginner-options,
   .advanced-grid {
     grid-template-columns: 1fr;
   }

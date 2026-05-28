@@ -5,7 +5,7 @@ import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from .deepseek_client import chat_json, is_deepseek_configured
+from .deepseek_client import DeepSeekError, chat_json, is_deepseek_configured
 
 
 JSON_FIELD_NAMES = [
@@ -106,11 +106,40 @@ def build_lesson_prompt(
     student_level: str = DEFAULT_STUDENT_LEVEL,
     generation_depth: str = DEFAULT_GENERATION_DEPTH,
     template_fields: list[str] | None = None,
+    creative_mode: str = "",
+    anti_repetition_context: str = "",
+    few_shot_examples: str = "",
 ) -> str:
     stage = _stage_name(infer_school_stage(grade))
     fields = template_fields or JSON_FIELD_NAMES
     fields_json = json.dumps(fields, ensure_ascii=False)
-    return f"""# 角色设定
+    creative_mode = (creative_mode or "常规稳妥").strip()
+    anti_repetition_block = ""
+    if anti_repetition_context.strip():
+        anti_repetition_block = f"""
+# 历史反重复要求
+以下是系统检索到的近期相似教案摘要。你必须避免复用其中的导入方式、活动顺序、作业表达和板书结构；如果课题相同，也要换一种课堂主线。
+{anti_repetition_context}
+"""
+    few_shot_block = ""
+    if few_shot_examples.strip():
+        few_shot_block = f"""
+# 优秀教案参考样例
+以下样例只用于学习质量、颗粒度和课堂活动设计方式，不能照抄措辞。
+{few_shot_examples}
+"""
+    blueprint_block = f"""# 教学设计蓝图要求
+在输出 JSON 前，请先在内部完成一份“教学设计蓝图”，但不要把蓝图作为额外字段输出。蓝图必须明确：
+1. 本课课堂主线是什么，不能只是“导入-新授-练习-总结”。
+2. 学生会完成什么可观察产出。
+3. 教师如何用追问、证据、评价推动学习。
+4. 本次生成风格为【{creative_mode}】，请在教学过程、作业和板书中体现差异。
+5. 至少设计一个与课题强相关的具体课堂活动，不要写泛泛的“小组讨论”。
+{anti_repetition_block}
+{few_shot_block}
+"""
+    return f"""{blueprint_block}
+# 角色设定
 你是一个由多位顶尖教育专家组成的“全学段特级教师团队”化身。你的团队成员包括小学高级教师、中学特级教师以及大学资深教授。你深谙各个学段的教育心理学、认知发展规律和各学科的课程标准。
 
 # 核心任务
@@ -208,6 +237,10 @@ def draft_lesson_fields_with_source(
     teaching_style: str = DEFAULT_TEACHING_STYLE,
     student_level: str = DEFAULT_STUDENT_LEVEL,
     generation_depth: str = DEFAULT_GENERATION_DEPTH,
+    strict_ai: bool = False,
+    creative_mode: str = "",
+    anti_repetition_context: str = "",
+    few_shot_examples: str = "",
 ) -> tuple[LessonFields, str]:
     """Create a stage-aware draft.
 
@@ -226,6 +259,12 @@ def draft_lesson_fields_with_source(
         generation_depth,
     )
     if not is_deepseek_configured():
+        if strict_ai:
+            raise DeepSeekError(
+                "DEEPSEEK_API_KEY is not configured",
+                error_type="not_configured",
+                user_message="严格 AI 模式已开启，但未配置 DEEPSEEK_API_KEY。请先创建 .env。",
+            )
         return fallback, "local"
 
     prompt = build_lesson_prompt(
@@ -239,6 +278,9 @@ def draft_lesson_fields_with_source(
         student_level,
         generation_depth,
         JSON_FIELD_NAMES,
+        creative_mode,
+        anti_repetition_context,
+        few_shot_examples,
     )
     try:
         data = chat_json(
@@ -248,7 +290,17 @@ def draft_lesson_fields_with_source(
             max_tokens=7000,
         )
         return _lesson_fields_from_dict(data, fallback), "deepseek"
-    except Exception:
+    except DeepSeekError:
+        if strict_ai:
+            raise
+        return fallback, "local_fallback"
+    except Exception as exc:
+        if strict_ai:
+            raise DeepSeekError(
+                str(exc),
+                error_type="unknown",
+                user_message=f"DeepSeek 生成失败：{exc}",
+            ) from exc
         return fallback, "local_fallback"
 
 
@@ -263,6 +315,10 @@ def draft_lesson_document_fields_with_source(
     student_level: str = DEFAULT_STUDENT_LEVEL,
     generation_depth: str = DEFAULT_GENERATION_DEPTH,
     template_fields: list[str] | None = None,
+    strict_ai: bool = False,
+    creative_mode: str = "",
+    anti_repetition_context: str = "",
+    few_shot_examples: str = "",
 ) -> tuple[dict[str, str], str]:
     """Create a document field map guided by Word template placeholders."""
     fields = template_fields or JSON_FIELD_NAMES
@@ -279,6 +335,12 @@ def draft_lesson_document_fields_with_source(
     )
     fallback = _document_fields_from_lesson(local_lesson, fields)
     if not is_deepseek_configured():
+        if strict_ai:
+            raise DeepSeekError(
+                "DEEPSEEK_API_KEY is not configured",
+                error_type="not_configured",
+                user_message="严格 AI 模式已开启，但未配置 DEEPSEEK_API_KEY。请先创建 .env。",
+            )
         return fallback, "local"
 
     prompt = build_lesson_prompt(
@@ -292,6 +354,9 @@ def draft_lesson_document_fields_with_source(
         student_level,
         generation_depth,
         fields,
+        creative_mode,
+        anti_repetition_context,
+        few_shot_examples,
     )
     try:
         data = chat_json(
@@ -301,7 +366,17 @@ def draft_lesson_document_fields_with_source(
             max_tokens=7600,
         )
         return _document_fields_from_dict(data, fallback, fields), "deepseek"
-    except Exception:
+    except DeepSeekError:
+        if strict_ai:
+            raise
+        return fallback, "local_fallback"
+    except Exception as exc:
+        if strict_ai:
+            raise DeepSeekError(
+                str(exc),
+                error_type="unknown",
+                user_message=f"DeepSeek 生成失败：{exc}",
+            ) from exc
         return fallback, "local_fallback"
 
 

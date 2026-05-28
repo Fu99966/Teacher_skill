@@ -14,6 +14,7 @@ from .agent_core.executor import AgentExecutor
 from .agent_core.planner import build_plan
 from .agent_core.task_router import route_task
 from .agent_core.tool_registry import build_lesson_tool_registry
+from .deepseek_client import DeepSeekError, check_deepseek_health
 from .history_store import HistoryStore
 from .lesson_generator import (
     DEFAULT_CLASS_TYPE,
@@ -56,6 +57,11 @@ def _form_value(form: cgi.FieldStorage, name: str, default: str = "") -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _form_bool(form: cgi.FieldStorage, name: str, default: bool = False) -> bool:
+    value = _form_value(form, name, "1" if default else "")
+    return value.strip().lower() in {"1", "true", "yes", "on", "strict"}
 
 
 def _template_id_for(path: Path) -> str:
@@ -159,6 +165,11 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             self._send(*_json_bytes({"items": history}))
             return
 
+        if path == "/api/llm-health":
+            probe = "probe=1" in (parsed.query or "")
+            self._send(*_json_bytes({"llm": check_deepseek_health(probe=probe).to_dict()}))
+            return
+
         if path == "/download/sample-template":
             if not SAMPLE_TEMPLATE.exists():
                 create_sample_template(SAMPLE_TEMPLATE)
@@ -212,6 +223,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/draft":
             try:
                 self._handle_draft()
+            except DeepSeekError as exc:
+                self._send(*_json_bytes({"error": exc.user_message, "llm_error": exc.to_dict()}, HTTPStatus.BAD_GATEWAY))
             except Exception as exc:
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
@@ -244,6 +257,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._handle_agent_run()
             except ValueError as exc:
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
+            except DeepSeekError as exc:
+                self._send(*_json_bytes({"error": exc.user_message, "llm_error": exc.to_dict()}, HTTPStatus.BAD_GATEWAY))
             except Exception as exc:
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
@@ -254,6 +269,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         try:
             self._handle_generate()
+        except DeepSeekError as exc:
+            self._send(*_json_bytes({"error": exc.user_message, "llm_error": exc.to_dict()}, HTTPStatus.BAD_GATEWAY))
         except Exception as exc:
             self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
 
@@ -270,7 +287,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             errors="replace",
         )
 
-    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, str, str, str, str, Path, dict]:
+    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, str, str, str, str, bool, str, Path, dict]:
         form = self._read_multipart_form()
 
         subject = _form_value(form, "subject", "语文")
@@ -282,6 +299,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
         student_level = _form_value(form, "student_level", DEFAULT_STUDENT_LEVEL)
         generation_depth = _form_value(form, "generation_depth", DEFAULT_GENERATION_DEPTH)
+        strict_ai = _form_bool(form, "strict_ai", False)
+        creative_mode = _form_value(form, "creative_mode", "常规稳妥")
 
         template_path = self._save_template(form)
         template_analysis = analyze_template(template_path)
@@ -296,6 +315,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             teaching_style,
             student_level,
             generation_depth,
+            strict_ai,
+            creative_mode,
             template_path,
             template_analysis,
         )
@@ -313,6 +334,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         str,
         Path,
         dict,
+        bool,
+        str,
         str,
         bool,
     ]:
@@ -327,6 +350,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
         student_level = _form_value(form, "student_level", DEFAULT_STUDENT_LEVEL)
         generation_depth = _form_value(form, "generation_depth", DEFAULT_GENERATION_DEPTH)
+        strict_ai = _form_bool(form, "strict_ai", True)
+        creative_mode = _form_value(form, "creative_mode", "更像公开课")
         template_mode = _form_value(form, "template_mode", "upload").strip() or "upload"
         if template_mode not in {"system", "upload"}:
             raise ValueError("模板模式无效，请选择系统模板或上传模板")
@@ -350,6 +375,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             generation_depth,
             template_path,
             template_analysis,
+            strict_ai,
+            creative_mode,
             _template_mode_label(template_path),
             not material.strip(),
         )
@@ -366,6 +393,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             teaching_style,
             student_level,
             generation_depth,
+            strict_ai,
+            creative_mode,
             template_path,
             template_analysis,
         ) = self._read_lesson_form()
@@ -379,13 +408,16 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             teaching_style,
             student_level,
             generation_depth,
+            strict_ai,
+            creative_mode,
         )
-        workflow = TeacherWorkflow()
+        workflow = TeacherWorkflow(history_db=HISTORY_DB)
         result = workflow.draft(request, template_path, _template_id_for(template_path))
 
         # Keep this local variable referenced so template analysis failures are
         # surfaced before generation starts.
         result["template_analysis"] = result.get("template_analysis") or template_analysis
+        result["llm_status"] = check_deepseek_health(probe=False).to_dict()
         self._send(*_json_bytes(result))
 
     def _handle_refine_field(self) -> None:
@@ -473,6 +505,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             generation_depth,
             template_path,
             template_analysis,
+            strict_ai,
+            creative_mode,
             actual_template_mode,
             is_generic_material,
         ) = self._read_agent_form()
@@ -532,6 +566,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             task.teaching_style,
             task.student_level,
             task.generation_depth,
+            strict_ai,
+            creative_mode,
         )
         context = {
             "agent_task": task,
@@ -552,6 +588,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         payload = {
             **draft_result,
+            "error": (context.get("llm_error") or {}).get("message") if context.get("llm_error") else None,
+            "llm_error": context.get("llm_error"),
             "fields": context.get("fields") or draft_result.get("fields") or {},
             "template_fields": template_analysis["mapped_fields"],
             "template_analysis": export_result.get("template_analysis") or draft_result.get("template_analysis") or template_analysis,
@@ -567,12 +605,17 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "history_item": context.get("history_item"),
             "template_mode": actual_template_mode,
             "is_generic_material": is_generic_material,
+            "llm_status": check_deepseek_health(probe=False).to_dict(),
+            "quality_controls": draft_result.get("quality_controls") or {},
             "beginner_summary": _beginner_summary(
                 evaluation_report=context.get("evaluation_report"),
                 is_generic_material=is_generic_material,
                 template_mode=actual_template_mode,
             ),
         }
+        if context.get("llm_error"):
+            self._send(*_json_bytes(payload, HTTPStatus.BAD_GATEWAY))
+            return
         self._send(*_json_bytes(payload, HTTPStatus.INTERNAL_SERVER_ERROR if execution.failed else HTTPStatus.OK))
 
     def _handle_export(self) -> None:
@@ -634,6 +677,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             teaching_style,
             student_level,
             generation_depth,
+            strict_ai,
+            creative_mode,
             template_path,
             template_analysis,
         ) = self._read_lesson_form()
@@ -648,8 +693,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             teaching_style,
             student_level,
             generation_depth,
+            strict_ai,
+            creative_mode,
         )
-        workflow = TeacherWorkflow()
+        workflow = TeacherWorkflow(history_db=HISTORY_DB)
         draft_result = workflow.draft(request, template_path, _template_id_for(template_path))
         export_result = workflow.export_document(draft_result["fields"], template_path, OUTPUT_DIR, PREVIEW_DIR)
         template_mode = export_result["template_analysis"].get("mode", "unknown")
@@ -685,6 +732,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                     "preview_url": export_result["preview_url"],
                     "workflow_trace": export_result["workflow_trace"],
                     "history_item": history_item,
+                    "llm_status": check_deepseek_health(probe=False).to_dict(),
                 }
             )
         )

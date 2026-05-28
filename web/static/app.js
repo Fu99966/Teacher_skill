@@ -9,6 +9,7 @@ const downloadLink = document.querySelector("#download-link");
 const exportButton = document.querySelector("#export-button");
 const fieldCount = document.querySelector("#field-count");
 const fileName = document.querySelector("#file-name");
+const backendName = document.querySelector("#backend-name");
 const previewList = document.querySelector("#preview-list");
 const templateMode = document.querySelector("#template-mode");
 const templateMap = document.querySelector("#template-map");
@@ -50,6 +51,8 @@ const beginnerGenerateButton = document.querySelector("#beginner-generate-button
 const beginnerTemplateInput = document.querySelector("#beginner-template-input");
 const beginnerUploadWrap = document.querySelector("#beginner-upload-wrap");
 const beginnerMaterial = document.querySelector("#beginner-material");
+const beginnerCreativeMode = document.querySelector("#beginner-creative-mode");
+const beginnerStrictAi = document.querySelector("#beginner-strict-ai");
 const beginnerGenericNote = document.querySelector("#beginner-generic-note");
 const beginnerProgressList = document.querySelector("#beginner-progress-list");
 const beginnerResultTitle = document.querySelector("#beginner-result-title");
@@ -71,6 +74,9 @@ const beginnerTemplateMode = document.querySelector("#beginner-template-mode");
 const beginnerTemplateMap = document.querySelector("#beginner-template-map");
 const beginnerWorkflowSteps = document.querySelector("#beginner-workflow-steps");
 const beginnerHistoryList = document.querySelector("#beginner-history-list");
+const llmPill = document.querySelector("#llm-pill");
+const llmPillStatus = document.querySelector("#llm-pill-status");
+const llmProbeButton = document.querySelector("#llm-probe-button");
 
 const fieldLabels = {
   lesson_title: "课题",
@@ -122,6 +128,13 @@ const backendLabels = {
   local_fallback: "DeepSeek 失败，已用本地草稿",
 };
 
+const llmStatusLabels = {
+  not_configured: "未配置",
+  configured: "已配置",
+  ok: "正常",
+  error: "异常",
+};
+
 const missingLabels = {
   subject: "学科",
   grade: "年级",
@@ -166,6 +179,37 @@ function showBeginnerNotice(message, isError = false) {
   beginnerNotice.hidden = !message;
   beginnerNotice.textContent = message || "";
   beginnerNotice.classList.toggle("error", isError);
+}
+
+function renderLlmStatus(status) {
+  const data = status || {};
+  const state = data.status || (data.ok ? "ok" : "not_configured");
+  llmPill.dataset.status = state;
+  llmPillStatus.textContent = llmStatusLabels[state] || state;
+  llmPill.title = `${data.message || "AI 服务状态未知"}\n模型：${data.model || ""}`;
+}
+
+async function loadLlmHealth(probe = false) {
+  llmProbeButton.disabled = true;
+  llmPillStatus.textContent = probe ? "诊断中" : "检查中";
+  try {
+    const response = await fetch(`/api/llm-health${probe ? "?probe=1" : ""}`);
+    const data = await response.json();
+    renderLlmStatus(data.llm);
+    if (probe && data.llm?.message) {
+      if (activeMode === "beginner") {
+        showBeginnerNotice(data.llm.message, !data.llm.ok);
+      } else {
+        setStatus(data.llm.message, !data.llm.ok);
+      }
+    }
+    return data.llm;
+  } catch {
+    renderLlmStatus({ status: "error", message: "无法读取 AI 服务状态。", ok: false });
+    return null;
+  } finally {
+    llmProbeButton.disabled = false;
+  }
 }
 
 function focusStatus() {
@@ -639,6 +683,7 @@ function applyGenerationResult(data, formData = null) {
   currentReviewReport = data.review_report || null;
   currentWorkflowTrace = data.workflow_trace || [];
   currentGenerationBackend = data.generation_backend || null;
+  backendName.textContent = backendLabels[currentGenerationBackend] || currentGenerationBackend || "未知";
   currentRequestContext = formData
     ? readRequestContext(formData)
     : {
@@ -669,6 +714,9 @@ function applyGenerationResult(data, formData = null) {
   renderWorkflowTrace(currentWorkflowTrace, beginnerWorkflowSteps);
   renderPreview(data.fields);
   renderGroupedPreview(data.fields);
+  if (data.llm_status) {
+    renderLlmStatus(data.llm_status);
+  }
   if (data.download_url) {
     setDownloadReady(data.download_url, data.output_name);
     setPreviewReady(data.preview_url);
@@ -845,6 +893,8 @@ async function runBeginnerAgent() {
   formData.append("teaching_style", beginnerTeachingStyle.value);
   formData.append("student_level", "常规混合水平");
   formData.append("generation_depth", beginnerRequestInput.value.includes("公开课") ? "深度" : "标准");
+  formData.append("creative_mode", beginnerCreativeMode.value);
+  formData.append("strict_ai", beginnerStrictAi.checked ? "1" : "");
   formData.append("template_mode", templateModeValue);
   formData.append("material", beginnerMaterial.value.trim());
   if (templateModeValue === "upload" && beginnerTemplateInput.files[0]) {
@@ -862,10 +912,19 @@ async function runBeginnerAgent() {
     });
     const data = await response.json();
     if (!response.ok) {
-      if (data.agent_task) {
+      if (data.needs_input && data.agent_task) {
         fillBeginnerTask(data.agent_task);
         renderAgentPlan(data.agent_task, data.agent_plan || [], beginnerAgentPlanList, beginnerAgentTaskType);
         setBeginnerStep("confirm");
+      }
+      if (data.llm_error) {
+        renderLlmStatus({
+          status: "error",
+          ok: false,
+          message: data.llm_error.message,
+          error_type: data.llm_error.error_type,
+          error_code: data.llm_error.error_code,
+        });
       }
       throw new Error(data.message || data.error || "生成失败");
     }
@@ -913,6 +972,15 @@ form.addEventListener("submit", async (event) => {
 
     const data = await response.json();
     if (!response.ok) {
+      if (data.llm_error) {
+        renderLlmStatus({
+          status: "error",
+          ok: false,
+          message: data.llm_error.message,
+          error_type: data.llm_error.error_type,
+          error_code: data.llm_error.error_code,
+        });
+      }
       throw new Error(data.error || "生成失败");
     }
 
@@ -960,6 +1028,15 @@ agentRunButton.addEventListener("click", async () => {
     const data = await response.json();
     if (!response.ok) {
       renderAgentPlan(data.agent_task, data.agent_plan || []);
+      if (data.llm_error) {
+        renderLlmStatus({
+          status: "error",
+          ok: false,
+          message: data.llm_error.message,
+          error_type: data.llm_error.error_type,
+          error_code: data.llm_error.error_code,
+        });
+      }
       throw new Error(data.message || data.error || "Agent 执行失败");
     }
 
@@ -1113,6 +1190,7 @@ beginnerEditButton.addEventListener("click", () => {
   firstEditor?.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 beginnerRegenerateButton.addEventListener("click", () => setBeginnerStep("prepare"));
+llmProbeButton.addEventListener("click", () => loadLlmHealth(true));
 
 document.querySelectorAll(".quick-prompts [data-prompt]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -1148,3 +1226,4 @@ setBeginnerStep("intent");
 setMode(activeMode);
 loadWorkflowSchema();
 loadHistory();
+loadLlmHealth(false);

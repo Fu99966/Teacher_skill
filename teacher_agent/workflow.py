@@ -6,6 +6,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .docx_filler import fill_docx_template
+from .few_shot_examples import select_few_shot_examples
+from .history_store import HistoryStore
 from .lesson_generator import coerce_lesson_fields, draft_lesson_document_fields_with_source, draft_lesson_fields_local
 from .preview_renderer import render_docx_pdf_preview
 from .rag_context import build_knowledge_context
@@ -24,6 +26,8 @@ class LessonRequest:
     teaching_style: str
     student_level: str
     generation_depth: str
+    strict_ai: bool = False
+    creative_mode: str = "常规稳妥"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -49,6 +53,7 @@ def build_workflow_schema() -> dict:
             {"id": "app_input", "label": "应用输入", "layer": "应用层"},
             {"id": "template_analyzer", "label": "模板解析", "layer": "编排层"},
             {"id": "knowledge_context", "label": "RAG 上下文", "layer": "知识层"},
+            {"id": "anti_repetition", "label": "历史反重复", "layer": "质量层"},
             {"id": "lesson_writer", "label": "执教老师 Agent", "layer": "Agent 层"},
             {"id": "teaching_reviewer", "label": "教研组长 Agent", "layer": "Agent 层"},
             {"id": "lesson_reviser", "label": "二次修订 Agent", "layer": "Agent 层"},
@@ -58,7 +63,8 @@ def build_workflow_schema() -> dict:
         "edges": [
             ["app_input", "template_analyzer"],
             ["template_analyzer", "knowledge_context"],
-            ["knowledge_context", "lesson_writer"],
+            ["knowledge_context", "anti_repetition"],
+            ["anti_repetition", "lesson_writer"],
             ["lesson_writer", "teaching_reviewer"],
             ["teaching_reviewer", "lesson_reviser"],
             ["lesson_reviser", "doc_renderer"],
@@ -75,9 +81,10 @@ def _safe_filename(value: str, fallback: str = "lesson") -> str:
 
 
 class TeacherWorkflow:
-    def __init__(self) -> None:
+    def __init__(self, history_db: Path | None = None) -> None:
         self._started_at = time.perf_counter()
         self.trace: list[WorkflowTraceEvent] = []
+        self.history_db = history_db
 
     def _mark(self, node: str, label: str, status: str, detail: str) -> None:
         elapsed_ms = int((time.perf_counter() - self._started_at) * 1000)
@@ -105,6 +112,22 @@ class TeacherWorkflow:
         self._mark("knowledge_context", "RAG 上下文", "done", knowledge_context.source_summary)
 
         enhanced_material = knowledge_context.enhanced_material(request.material)
+        anti_repetition_context = self._build_anti_repetition_context(request)
+        if anti_repetition_context:
+            self._mark(
+                "anti_repetition",
+                "历史反重复",
+                "done",
+                "已读取近期相似教案，生成时会避开重复导入、活动顺序、作业和板书表达。",
+            )
+        else:
+            self._mark("anti_repetition", "历史反重复", "done", "未发现近期相似教案，本次按新任务生成。")
+        few_shot_examples = select_few_shot_examples(
+            request.subject,
+            request.grade,
+            request.class_type,
+            request.creative_mode,
+        )
         template_fields = template_analysis["mapped_fields"] or None
         field_map, generation_backend = draft_lesson_document_fields_with_source(
             request.subject,
@@ -117,6 +140,10 @@ class TeacherWorkflow:
             request.student_level,
             request.generation_depth,
             template_fields,
+            request.strict_ai,
+            request.creative_mode,
+            anti_repetition_context,
+            few_shot_examples,
         )
         self._mark("lesson_writer", "执教老师 Agent", "done", f"已生成 {len(field_map)} 个字段，来源：{generation_backend}。")
 
@@ -124,6 +151,9 @@ class TeacherWorkflow:
             **request.to_dict(),
             "template_fields": template_analysis["mapped_fields"],
             "knowledge_summary": knowledge_context.source_summary,
+            "anti_repetition_context": anti_repetition_context,
+            "creative_mode": request.creative_mode,
+            "strict_ai": request.strict_ai,
         }
         fallback_lesson = draft_lesson_fields_local(
             request.subject,
@@ -158,9 +188,44 @@ class TeacherWorkflow:
             "revision_backend": revision_backend,
             "review_report": review_report.to_dict(),
             "knowledge_report": knowledge_context.to_dict(),
+            "quality_controls": {
+                "strict_ai": request.strict_ai,
+                "creative_mode": request.creative_mode,
+                "anti_repetition_used": bool(anti_repetition_context),
+                "few_shot_used": bool(few_shot_examples),
+            },
             "workflow_trace": [event.to_dict() for event in self.trace],
             "workflow_schema": build_workflow_schema(),
         }
+
+    def _build_anti_repetition_context(self, request: LessonRequest) -> str:
+        if not self.history_db:
+            return ""
+        try:
+            documents = HistoryStore(self.history_db).find_similar_documents(
+                subject=request.subject,
+                grade=request.grade,
+                title=request.title,
+                limit=3,
+            )
+        except Exception:
+            return ""
+        if not documents:
+            return ""
+        chunks = []
+        for index, item in enumerate(documents, start=1):
+            chunks.append(
+                "\n".join(
+                    [
+                        f"相似教案{index}：{item.get('grade','')}{item.get('subject','')}《{item.get('lesson_title','')}》",
+                        f"课型/风格：{item.get('class_type','')} / {item.get('teaching_style','')}",
+                        f"教学过程摘要：{item.get('teaching_process','')}",
+                        f"作业摘要：{item.get('homework','')}",
+                        f"板书摘要：{item.get('blackboard_design','')}",
+                    ]
+                )
+            )
+        return "\n\n".join(chunks)
 
     def export_document(
         self,

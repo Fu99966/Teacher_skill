@@ -104,6 +104,44 @@ class HistoryStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def find_similar_documents(
+        self,
+        *,
+        subject: str,
+        grade: str,
+        title: str,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        subject_like = f"%{subject.strip()}%" if subject.strip() else "%"
+        grade_like = f"%{grade.strip()}%" if grade.strip() else "%"
+        title_like = f"%{title.strip()}%" if title.strip() else "%"
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT created_at, title, subject, grade, class_type, teaching_style,
+                       backend, fields_json
+                FROM documents
+                WHERE (subject LIKE ? OR grade LIKE ? OR title LIKE ?)
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (subject_like, grade_like, title_like, limit),
+            ).fetchall()
+
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                fields = json.loads(str(item.pop("fields_json") or "{}"))
+            except json.JSONDecodeError:
+                fields = {}
+            item["lesson_title"] = str(fields.get("lesson_title") or item.get("title") or "")
+            item["teaching_process"] = str(fields.get("teaching_process") or "")[:520]
+            item["homework"] = str(fields.get("homework") or "")[:260]
+            item["blackboard_design"] = str(fields.get("blackboard_design") or "")[:220]
+            results.append(item)
+        return results
+
     def _public_record(self, record: dict[str, Any]) -> dict[str, Any]:
         return {
             key: record[key]

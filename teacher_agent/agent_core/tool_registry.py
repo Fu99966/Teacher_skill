@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from ..deepseek_client import DeepSeekError
 from ..history_store import HistoryStore
 from ..workflow import TeacherWorkflow
 from .evaluator import evaluate_lesson_output
@@ -35,8 +36,12 @@ def build_lesson_tool_registry(
     registry = ToolRegistry()
 
     def draft_lesson(context: dict[str, Any]) -> dict[str, Any]:
-        workflow = TeacherWorkflow()
-        draft = workflow.draft(context["lesson_request"], context["template_path"], context["template_id"])
+        workflow = TeacherWorkflow(history_db=history_db)
+        try:
+            draft = workflow.draft(context["lesson_request"], context["template_path"], context["template_id"])
+        except DeepSeekError as exc:
+            context["llm_error"] = exc.to_dict()
+            raise
         context["draft_result"] = draft
         context["fields"] = draft["fields"]
         context["workflow_trace"] = draft.get("workflow_trace", [])
