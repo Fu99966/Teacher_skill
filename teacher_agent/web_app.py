@@ -14,13 +14,15 @@ from .agent_core.executor import AgentExecutor
 from .agent_core.planner import build_plan
 from .agent_core.task_router import route_task
 from .agent_core.tool_registry import build_lesson_tool_registry
-from .deepseek_client import DeepSeekError, check_deepseek_health
+from .deepseek_client import DeepSeekError
 from .history_store import HistoryStore
 from .lesson_generator import (
     DEFAULT_CLASS_TYPE,
     DEFAULT_GENERATION_DEPTH,
     DEFAULT_STUDENT_LEVEL,
     DEFAULT_TEACHING_STYLE,
+    LessonGenerationError,
+    check_generation_health,
     refine_lesson_field,
 )
 from .sample_template import create_sample_template
@@ -170,7 +172,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         if path == "/api/llm-health":
             probe = "probe=1" in (parsed.query or "")
-            self._send(*_json_bytes({"llm": check_deepseek_health(probe=probe).to_dict()}))
+            self._send(*_json_bytes({"llm": check_generation_health(probe=probe).to_dict()}))
             return
 
         if path == "/download/sample-template":
@@ -231,6 +233,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._handle_draft()
             except DeepSeekError as exc:
                 self._send(*_json_bytes({"error": exc.user_message, "llm_error": exc.to_dict()}, HTTPStatus.BAD_GATEWAY))
+            except LessonGenerationError as exc:
+                self._send(
+                    *_json_bytes(
+                        {"error": str(exc), "llm_error": {"message": str(exc), "type": "generation_error"}},
+                        HTTPStatus.BAD_GATEWAY,
+                    )
+                )
             except Exception as exc:
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
@@ -265,6 +274,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
             except DeepSeekError as exc:
                 self._send(*_json_bytes({"error": exc.user_message, "llm_error": exc.to_dict()}, HTTPStatus.BAD_GATEWAY))
+            except LessonGenerationError as exc:
+                self._send(
+                    *_json_bytes(
+                        {"error": str(exc), "llm_error": {"message": str(exc), "type": "generation_error"}},
+                        HTTPStatus.BAD_GATEWAY,
+                    )
+                )
             except Exception as exc:
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
@@ -277,6 +293,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             self._handle_generate()
         except DeepSeekError as exc:
             self._send(*_json_bytes({"error": exc.user_message, "llm_error": exc.to_dict()}, HTTPStatus.BAD_GATEWAY))
+        except LessonGenerationError as exc:
+            self._send(
+                *_json_bytes(
+                    {"error": str(exc), "llm_error": {"message": str(exc), "type": "generation_error"}},
+                    HTTPStatus.BAD_GATEWAY,
+                )
+            )
         except Exception as exc:
             self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
 
@@ -418,12 +441,12 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             creative_mode,
         )
         workflow = TeacherWorkflow(history_db=HISTORY_DB)
-        result = workflow.draft(request, template_path, _template_id_for(template_path))
+        result = workflow.draft(request, template_path, _template_id_for(template_path), template_analysis)
 
         # Keep this local variable referenced so template analysis failures are
         # surfaced before generation starts.
         result["template_analysis"] = result.get("template_analysis") or template_analysis
-        result["llm_status"] = check_deepseek_health(probe=False).to_dict()
+        result["llm_status"] = check_generation_health(probe=False).to_dict()
         self._send(*_json_bytes(result))
 
     def _handle_refine_field(self) -> None:
@@ -611,7 +634,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "history_item": context.get("history_item"),
             "template_mode": actual_template_mode,
             "is_generic_material": is_generic_material,
-            "llm_status": check_deepseek_health(probe=False).to_dict(),
+            "llm_status": check_generation_health(probe=False).to_dict(),
             "quality_controls": draft_result.get("quality_controls") or {},
             "beginner_summary": _beginner_summary(
                 evaluation_report=context.get("evaluation_report"),
@@ -703,7 +726,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             creative_mode,
         )
         workflow = TeacherWorkflow(history_db=HISTORY_DB)
-        draft_result = workflow.draft(request, template_path, _template_id_for(template_path))
+        draft_result = workflow.draft(request, template_path, _template_id_for(template_path), template_analysis)
         export_result = workflow.export_document(draft_result["fields"], template_path, OUTPUT_DIR, PREVIEW_DIR)
         template_mode = export_result["template_analysis"].get("mode", "unknown")
         export_result["workflow_trace"].append(
@@ -738,7 +761,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                     "preview_url": export_result["preview_url"],
                     "workflow_trace": export_result["workflow_trace"],
                     "history_item": history_item,
-                    "llm_status": check_deepseek_health(probe=False).to_dict(),
+                    "llm_status": check_generation_health(probe=False).to_dict(),
                 }
             )
         )

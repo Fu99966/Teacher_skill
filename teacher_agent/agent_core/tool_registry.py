@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from ..deepseek_client import DeepSeekError
 from ..history_store import HistoryStore
+from ..lesson_generator import LessonGenerationError
 from ..workflow import TeacherWorkflow
 from .evaluator import evaluate_lesson_output
 from .memory import AgentMemoryStore
@@ -38,9 +39,17 @@ def build_lesson_tool_registry(
     def draft_lesson(context: dict[str, Any]) -> dict[str, Any]:
         workflow = TeacherWorkflow(history_db=history_db)
         try:
-            draft = workflow.draft(context["lesson_request"], context["template_path"], context["template_id"])
+            draft = workflow.draft(
+                context["lesson_request"],
+                context["template_path"],
+                context["template_id"],
+                context.get("template_analysis"),
+            )
         except DeepSeekError as exc:
             context["llm_error"] = exc.to_dict()
+            raise
+        except LessonGenerationError as exc:
+            context["llm_error"] = {"message": str(exc), "type": "generation_error"}
             raise
         context["draft_result"] = draft
         context["fields"] = draft["fields"]

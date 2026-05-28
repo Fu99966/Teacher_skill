@@ -8,7 +8,7 @@ from urllib.parse import quote
 from .docx_filler import fill_docx_template
 from .few_shot_examples import select_few_shot_examples
 from .history_store import HistoryStore
-from .lesson_generator import coerce_lesson_fields, draft_lesson_document_fields_with_source, draft_lesson_fields_local
+from .lesson_generator import draft_lesson_document_fields_with_source
 from .preview_renderer import render_docx_pdf_preview
 from .rag_context import build_knowledge_context
 from .teacher_agents import review_lesson_quality, revise_lesson_after_review
@@ -90,10 +90,16 @@ class TeacherWorkflow:
         elapsed_ms = int((time.perf_counter() - self._started_at) * 1000)
         self.trace.append(WorkflowTraceEvent(node, label, status, detail, elapsed_ms))
 
-    def draft(self, request: LessonRequest, template_path: Path, template_id: str) -> dict:
+    def draft(
+        self,
+        request: LessonRequest,
+        template_path: Path,
+        template_id: str,
+        template_analysis: dict | None = None,
+    ) -> dict:
         self._mark("app_input", "应用输入", "done", "已接收课程信息、Word 模板和可选补充资料。")
 
-        template_analysis = analyze_template(template_path)
+        template_analysis = template_analysis or analyze_template(template_path)
         mode = "占位符" if template_analysis["placeholders"] else "表格标签"
         self._mark(
             "template_analyzer",
@@ -155,18 +161,7 @@ class TeacherWorkflow:
             "creative_mode": request.creative_mode,
             "strict_ai": request.strict_ai,
         }
-        fallback_lesson = draft_lesson_fields_local(
-            request.subject,
-            request.grade,
-            request.title,
-            enhanced_material,
-            request.class_hour,
-            request.class_type,
-            request.teaching_style,
-            request.student_level,
-            request.generation_depth,
-        )
-        fields = coerce_lesson_fields(field_map, fallback_lesson)
+        fields = dict(field_map)
         review_report = review_lesson_quality(fields, context)
         self._mark(
             "teaching_reviewer",
@@ -175,8 +170,8 @@ class TeacherWorkflow:
             f"预审完成，评分 {review_report.score}。",
         )
 
-        fields, revision_backend = revise_lesson_after_review(fields, review_report, context)
-        field_map.update(fields.to_dict())
+        fields, revision_backend = revise_lesson_after_review(fields, review_report, context, template_fields)
+        field_map.update(fields)
         self._mark("lesson_reviser", "二次修订 Agent", "done", "已根据审阅意见完成修订。")
 
         return {

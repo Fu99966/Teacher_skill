@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 
 from .deepseek_client import chat_json, is_deepseek_configured
-from .lesson_generator import JSON_FIELD_NAMES, LessonFields, coerce_lesson_fields
+from .lesson_generator import JSON_FIELD_NAMES, coerce_dynamic_fields
 
 
 @dataclass
@@ -21,24 +21,31 @@ class ReviewReport:
         return asdict(self)
 
 
-def _local_review(fields: LessonFields, context: dict) -> ReviewReport:
-    data = fields.to_dict()
-    process = data.get("teaching_process", "")
-    goals = data.get("teaching_goals", "")
-    homework = data.get("homework", "")
+def _field_text(fields: dict[str, str], *names: str) -> str:
+    for name in names:
+        value = str(fields.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _local_review(fields: dict[str, str], context: dict) -> ReviewReport:
+    process = _field_text(fields, "teaching_process", "process", "教学过程")
+    goals = _field_text(fields, "teaching_goals", "goals", "教学目标")
+    homework = _field_text(fields, "homework", "作业", "课后任务")
     issues: list[str] = []
     improvements: list[str] = []
 
-    if "教师活动" not in process or "学生活动" not in process:
+    if process and ("教师活动" not in process or "学生活动" not in process):
         issues.append("教学过程中的师生活动边界还可以更清晰。")
-        improvements.append("为每个核心环节补充教师活动和学生活动。")
-    if len(process) < 360:
+        improvements.append("为核心环节补充教师活动和学生活动。")
+    if process and len(process) < 360:
         issues.append("教学过程略简，课堂推进证据不足。")
         improvements.append("增加探究、评价或迁移任务，让流程更可执行。")
-    if "基础" not in homework or "提升" not in homework:
+    if homework and ("基础" not in homework or "提升" not in homework):
         issues.append("作业分层还不够稳定。")
         improvements.append("保持基础题、提升题、拓展题三层结构。")
-    if "核心素养" not in goals and "情感" not in goals and "价值" not in goals:
+    if goals and all(keyword not in goals for keyword in ("核心素养", "情感", "价值")):
         issues.append("教学目标可进一步对齐核心素养或育人价值。")
         improvements.append("在目标中补充素养表现或情感态度维度。")
 
@@ -52,24 +59,23 @@ def _local_review(fields: LessonFields, context: dict) -> ReviewReport:
     return ReviewReport(
         reviewer="教研组长 Agent",
         score=score,
-        summary=f"已按“{class_type} + {teaching_style}”进行预审，教案主体可用，建议继续强化课堂证据和评价闭环。",
+        summary=f"已按“{class_type} + {teaching_style}”进行预审，文档主体可用，建议继续强化课堂证据和评价闭环。",
         issues=issues[:4],
         improvements=improvements[:4],
         backend="local",
     )
 
 
-def review_lesson_quality(fields: LessonFields, context: dict) -> ReviewReport:
+def review_lesson_quality(fields: dict[str, str], context: dict) -> ReviewReport:
     if not is_deepseek_configured():
         return _local_review(fields, context)
 
-    prompt = f"""你是教研组长/特级教师审阅 Agent。请审阅下面的教案初稿，指出是否符合课型、学段特点、教学法和课堂落地要求。
-
+    prompt = f"""你是教研组长/特级教师审阅 Agent。请审阅下面的教学文档初稿，指出是否符合课型、学段特点、教学法和课堂落地要求。
 上下文：
 {json.dumps(context, ensure_ascii=False, indent=2)}
 
-教案初稿：
-{json.dumps(fields.to_dict(), ensure_ascii=False, indent=2)}
+教学文档初稿：
+{json.dumps(fields, ensure_ascii=False, indent=2)}
 
 只输出合法 JSON，字段必须为：
 {{
@@ -103,35 +109,56 @@ def review_lesson_quality(fields: LessonFields, context: dict) -> ReviewReport:
         return report
 
 
-def _apply_local_revision(fields: LessonFields, report: ReviewReport) -> LessonFields:
-    data = fields.to_dict()
+def _first_existing_field(fields: dict[str, str], candidates: list[str]) -> str | None:
+    for field in candidates:
+        if field in fields:
+            return field
+    return None
+
+
+def _apply_local_revision(fields: dict[str, str], report: ReviewReport) -> dict[str, str]:
+    revised = dict(fields)
     suggestion_text = "；".join(report.improvements[:2])
-    if suggestion_text and suggestion_text not in data["reflection"]:
-        data["reflection"] = (
-            data["reflection"].rstrip()
-            + f"\n教研预审调整：课后重点观察“{suggestion_text}”是否真正改善学生学习表现。"
-        )
-    if "出口卡" not in data["teaching_process"] and report.improvements:
-        data["teaching_process"] = (
-            data["teaching_process"].rstrip()
+    reflection_field = _first_existing_field(revised, ["reflection", "teaching_reflection", "review_notes"])
+    process_field = _first_existing_field(revised, ["teaching_process", "process", "class_process"])
+
+    if suggestion_text:
+        if reflection_field:
+            current = revised.get(reflection_field, "").rstrip()
+            if suggestion_text not in current:
+                revised[reflection_field] = (
+                    current
+                    + f"\n教研预审调整：课后重点观察“{suggestion_text}”是否真正改善学生学习表现。"
+                ).strip()
+        elif "review_notes" in revised:
+            revised["review_notes"] = suggestion_text
+
+    if process_field and "出口卡" not in revised.get(process_field, "") and report.improvements:
+        revised[process_field] = (
+            revised.get(process_field, "").rstrip()
             + "\n\n教研优化环节：课堂结束前设置 2 分钟出口卡，学生写下一个已掌握要点和一个仍需追问的问题，教师据此调整后续教学。"
-        )
-    revised = LessonFields(**data)
+        ).strip()
+
     report.revision_applied = True
     return revised
 
 
-def revise_lesson_after_review(fields: LessonFields, report: ReviewReport, context: dict) -> tuple[LessonFields, str]:
+def revise_lesson_after_review(
+    fields: dict[str, str],
+    report: ReviewReport,
+    context: dict,
+    dynamic_fields: list[str] | None = None,
+) -> tuple[dict[str, str], str]:
+    allowed_fields = dynamic_fields or list(fields.keys()) or JSON_FIELD_NAMES
     if not is_deepseek_configured():
         return _apply_local_revision(fields, report), "local"
 
-    prompt = f"""你是执教老师 Agent。请根据教研组长审阅意见，对教案初稿进行二次修订。
-
+    prompt = f"""你是执教老师 Agent。请根据教研组长审阅意见，对教学文档初稿进行二次修订。
 要求：
 1. 只输出一个合法 JSON 对象。
-2. JSON Key 必须严格使用这些字段：{json.dumps(JSON_FIELD_NAMES, ensure_ascii=False)}
+2. JSON Key 必须严格且仅包含这些字段：{json.dumps(allowed_fields, ensure_ascii=False)}
 3. 不要输出 Markdown，不要输出解释，不要出现模板占位符。
-4. 保留原教案的课题、学科、年级和课时，不要改变 Word 模板结构。
+4. 保留原文档的课题、学科、年级和课时，不要改变 Word 模板结构。
 
 上下文：
 {json.dumps(context, ensure_ascii=False, indent=2)}
@@ -139,17 +166,17 @@ def revise_lesson_after_review(fields: LessonFields, report: ReviewReport, conte
 审阅意见：
 {json.dumps(report.to_dict(), ensure_ascii=False, indent=2)}
 
-教案初稿：
-{json.dumps(fields.to_dict(), ensure_ascii=False, indent=2)}
+教学文档初稿：
+{json.dumps(fields, ensure_ascii=False, indent=2)}
 """
     try:
         data = chat_json(
             prompt,
-            system="你是教师教案修订引擎，只输出合法 JSON，不输出 Markdown。",
+            system="你是教师教学文档修订引擎，只输出合法 JSON，不输出 Markdown。",
             temperature=0.55,
             max_tokens=7200,
         )
         report.revision_applied = True
-        return coerce_lesson_fields(data, fields), "deepseek"
+        return coerce_dynamic_fields(data if isinstance(data, dict) else {}, allowed_fields), "deepseek"
     except Exception:
         return _apply_local_revision(fields, report), "local_fallback"
