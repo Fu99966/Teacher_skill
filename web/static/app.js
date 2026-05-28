@@ -169,11 +169,24 @@ let activeMode = localStorage.getItem("teacherSkillMode") || "beginner";
 let beginnerTask = null;
 let beginnerStep = "intent";
 let beginnerDownloadIsFresh = false;
-const localApiOrigins = new Set(["http://127.0.0.1:8765", "http://localhost:8765"]);
+const backendOrigin = "http://127.0.0.1:8765";
+const localApiOrigins = new Set([backendOrigin, "http://localhost:8765"]);
 
 function apiFetch(path, options = {}) {
   const shouldUseLocalBackend = path.startsWith("/api/") && !localApiOrigins.has(window.location.origin);
-  return fetch(shouldUseLocalBackend ? `http://127.0.0.1:8765${path}` : path, options);
+  return fetch(shouldUseLocalBackend ? `${backendOrigin}${path}` : path, options);
+}
+
+function backendAssetUrl(url) {
+  if (!url || url === "#") {
+    return "#";
+  }
+  const base = localApiOrigins.has(window.location.origin) ? window.location.origin : backendOrigin;
+  try {
+    return new URL(url, base).href;
+  } catch {
+    return url;
+  }
 }
 
 function setStatus(message, isError = false) {
@@ -292,7 +305,7 @@ function setBusy(isBusy) {
 }
 
 function setDownloadReady(url, outputName) {
-  currentDownloadUrl = url || "#";
+  currentDownloadUrl = backendAssetUrl(url);
   fileName.textContent = outputName || "已生成";
   downloadLink.href = currentDownloadUrl;
   downloadLink.classList.toggle("is-disabled", !url);
@@ -305,7 +318,7 @@ function setDownloadReady(url, outputName) {
 }
 
 function setPreviewReady(url) {
-  currentPreviewUrl = url || "#";
+  currentPreviewUrl = backendAssetUrl(url);
   previewLink.href = currentPreviewUrl;
   previewLink.classList.toggle("is-disabled", !url);
   previewLink.setAttribute("aria-disabled", url ? "false" : "true");
@@ -469,7 +482,7 @@ function renderHistory(items = []) {
   items.slice(0, 6).forEach((item) => {
     const link = document.createElement("a");
     link.className = "history-item";
-    link.href = item.download_url;
+    link.href = backendAssetUrl(item.download_url);
 
     const text = document.createElement("div");
     const title = document.createElement("strong");
@@ -486,7 +499,7 @@ function renderHistory(items = []) {
 
   items.slice(0, 2).forEach((item) => {
     const link = document.createElement("a");
-    link.href = item.download_url;
+    link.href = backendAssetUrl(item.download_url);
     link.textContent = `${item.grade || ""}${item.subject || ""}《${item.title || "教案"}》`;
     beginnerHistoryList.appendChild(link);
   });
