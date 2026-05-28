@@ -300,6 +300,14 @@ label span {
   font-weight: 700;
 }
 
+.field-help {
+  display: block;
+  margin-top: 8px;
+  color: rgba(17, 24, 39, 0.52);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .wide-label {
   margin-top: 15px;
 }

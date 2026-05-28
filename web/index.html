@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>教师文档智能体</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260528-api-origin-fix" />
+    <link rel="stylesheet" href="/static/app.css?v=20260528-optional-material" />
   </head>
   <body>
     <div class="app-shell">
@@ -158,14 +158,14 @@
                   <input id="beginner-template-input" type="file" accept=".docx" />
                 </label>
                 <label class="wide-label">
-                  <span>教材内容（可选）</span>
+                  <span>教材内容 / 补充资料（可选）</span>
                   <textarea
                     id="beginner-material"
                     rows="8"
-                    placeholder="可以粘贴教材内容、知识点或课堂要求。暂时没有也可以直接生成通用版。"
+                    placeholder="可以粘贴教材内容、知识点或课堂要求。暂时没有也可以直接生成；有 Word 模板时会按模板格式写入。"
                   ></textarea>
                 </label>
-                <p class="soft-note" id="beginner-generic-note">不填写教材内容也能生成，但贴入教材后会更贴合课文。</p>
+                <p class="soft-note" id="beginner-generic-note">教材内容不是必填项；上传学校 Word 模板后，系统会根据模板字段和原格式填写。</p>
                 <div class="beginner-options">
                   <label>
                     <span>生成风格</span>
@@ -375,11 +375,13 @@
               <label class="wide-label file-drop">
                 <span>Word 模板</span>
                 <input id="template-input" name="template" type="file" accept=".docx" required />
+                <small class="field-help">上传学校模板后，系统会读取模板字段并尽量保持原 Word 排版格式。</small>
               </label>
 
               <label class="wide-label">
-                <span>教材内容</span>
-                <textarea name="material" id="material" rows="14" placeholder="粘贴教材内容、知识点、课程标准要求或课堂任务说明" required></textarea>
+                <span>教材内容 / 补充资料（可选）</span>
+                <textarea name="material" id="material" rows="14" placeholder="可粘贴教材内容、知识点、课程标准要求或课堂任务说明。不填写也可以生成；有 Word 模板时会按模板格式写入。"></textarea>
+                <small class="field-help">这是补充资料，不是必填项。没有教材时，系统会根据课程信息和 Word 模板生成通用版。</small>
               </label>
 
               <div class="actions">
@@ -486,6 +488,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=20260528-download-origin-fix"></script>
+    <script src="/static/app.js?v=20260528-optional-material"></script>
   </body>
 </html>

@@ -91,7 +91,7 @@ class TeacherWorkflow:
         self.trace.append(WorkflowTraceEvent(node, label, status, detail, elapsed_ms))
 
     def draft(self, request: LessonRequest, template_path: Path, template_id: str) -> dict:
-        self._mark("app_input", "应用输入", "done", "已接收课程信息、模板和教材内容。")
+        self._mark("app_input", "应用输入", "done", "已接收课程信息、Word 模板和可选补充资料。")
 
         template_analysis = analyze_template(template_path)
         mode = "占位符" if template_analysis["placeholders"] else "表格标签"

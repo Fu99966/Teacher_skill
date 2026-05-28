@@ -841,8 +841,8 @@ function syncBeginnerTemplateMode() {
   beginnerUploadWrap.hidden = mode !== "upload";
   beginnerGenericNote.textContent =
     mode === "system"
-      ? "默认使用系统标准模板。没有教材也可以生成通用版。"
-      : "上传学校模板后，系统会尽量保持原 Word 格式。";
+      ? "教材内容不是必填项；不填写时会按系统标准模板生成通用版。"
+      : "教材内容不是必填项；上传学校 Word 模板后，系统会根据模板字段和原格式填写。";
 }
 
 function resetBeginnerProgress() {
@@ -1240,8 +1240,8 @@ document.querySelectorAll('input[name="beginner_template_mode"]').forEach((radio
 
 beginnerMaterial.addEventListener("input", () => {
   beginnerGenericNote.textContent = beginnerMaterial.value.trim()
-    ? "已收到教材内容，生成时会优先贴合这些材料。"
-    : "不填写教材内容也能生成，但贴入教材后会更贴合课文。";
+    ? "已收到补充资料，生成时会优先贴合这些材料，并按 Word 模板格式写入。"
+    : "教材内容不是必填项；有 Word 模板时会按模板字段和原格式填写。";
 });
 
 renderReviewReport(null);
