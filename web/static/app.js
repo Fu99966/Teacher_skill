@@ -181,6 +181,22 @@ function showBeginnerNotice(message, isError = false) {
   beginnerNotice.classList.toggle("error", isError);
 }
 
+async function readApiJson(response) {
+  const text = await response.text();
+  if (!text.trim()) {
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const preview = text.trim().slice(0, 80);
+    if (preview.startsWith("<!DOCTYPE") || preview.startsWith("<html") || preview.startsWith("<")) {
+      throw new Error("接口返回了网页而不是 JSON。请确认本地 Teacher_skill 后端正在运行，并刷新页面后重试。");
+    }
+    throw new Error("接口返回内容不是合法 JSON，请检查本地服务日志后重试。");
+  }
+}
+
 function renderLlmStatus(status) {
   const data = status || {};
   const state = data.status || (data.ok ? "ok" : "not_configured");
@@ -194,7 +210,7 @@ async function loadLlmHealth(probe = false) {
   llmPillStatus.textContent = probe ? "诊断中" : "检查中";
   try {
     const response = await fetch(`/api/llm-health${probe ? "?probe=1" : ""}`);
-    const data = await response.json();
+    const data = await readApiJson(response);
     renderLlmStatus(data.llm);
     if (probe && data.llm?.message) {
       if (activeMode === "beginner") {
@@ -473,7 +489,7 @@ function renderHistory(items = []) {
 async function loadWorkflowSchema() {
   try {
     const response = await fetch("/api/workflow-schema");
-    workflowSchema = await response.json();
+    workflowSchema = await readApiJson(response);
     workflowVersion.textContent = workflowSchema.version || "Teacher_skill V7";
   } catch {
     workflowSchema = null;
@@ -485,7 +501,7 @@ async function loadWorkflowSchema() {
 async function loadHistory() {
   try {
     const response = await fetch("/api/history");
-    const data = await response.json();
+    const data = await readApiJson(response);
     renderHistory(data.items || []);
   } catch {
     renderHistory([]);
@@ -746,7 +762,7 @@ async function exportCurrentDocument() {
     }),
   });
 
-  const data = await response.json();
+  const data = await readApiJson(response);
   if (!response.ok) {
     throw new Error(data.error || "导出失败");
   }
@@ -856,7 +872,7 @@ async function previewBeginnerIntent() {
       },
       body: JSON.stringify({ agent_request: agentRequest }),
     });
-    const data = await response.json();
+    const data = await readApiJson(response);
     if (!response.ok) {
       throw new Error(data.error || "需求识别失败");
     }
@@ -910,7 +926,7 @@ async function runBeginnerAgent() {
       method: "POST",
       body: formData,
     });
-    const data = await response.json();
+    const data = await readApiJson(response);
     if (!response.ok) {
       if (data.needs_input && data.agent_task) {
         fillBeginnerTask(data.agent_task);
@@ -970,7 +986,7 @@ form.addEventListener("submit", async (event) => {
       body: formData,
     });
 
-    const data = await response.json();
+    const data = await readApiJson(response);
     if (!response.ok) {
       if (data.llm_error) {
         renderLlmStatus({
@@ -1025,7 +1041,7 @@ agentRunButton.addEventListener("click", async () => {
       body: formData,
     });
 
-    const data = await response.json();
+    const data = await readApiJson(response);
     if (!response.ok) {
       renderAgentPlan(data.agent_task, data.agent_plan || []);
       if (data.llm_error) {
@@ -1105,7 +1121,7 @@ async function handleRefineClick(event) {
         action: mode?.value || "more_vivid",
       }),
     });
-    const data = await response.json();
+    const data = await readApiJson(response);
     if (!response.ok) {
       throw new Error(data.error || "局部优化失败");
     }
