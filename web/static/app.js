@@ -9,7 +9,6 @@ const downloadLink = document.querySelector("#download-link");
 const exportButton = document.querySelector("#export-button");
 const fieldCount = document.querySelector("#field-count");
 const fileName = document.querySelector("#file-name");
-const backendName = document.querySelector("#backend-name");
 const previewList = document.querySelector("#preview-list");
 const templateMode = document.querySelector("#template-mode");
 const templateMap = document.querySelector("#template-map");
@@ -22,6 +21,7 @@ const reviewSummary = document.querySelector("#review-summary");
 const reviewIssues = document.querySelector("#review-issues");
 const reviewImprovements = document.querySelector("#review-improvements");
 const historyList = document.querySelector("#history-list");
+const railHistoryList = document.querySelector("#rail-history-list");
 const agentResultPanel = document.querySelector("#agent-result-panel");
 const agentTaskType = document.querySelector("#agent-task-type");
 const agentPlanList = document.querySelector("#agent-plan-list");
@@ -121,12 +121,6 @@ const previewGroups = [
   { title: "教学过程", keys: ["teaching_process", "blackboard_design"] },
   { title: "作业与反思", keys: ["homework", "reflection"] },
 ];
-
-const backendLabels = {
-  deepseek: "DeepSeek V4 Pro",
-  local: "本地草稿",
-  local_fallback: "DeepSeek 失败，已用本地草稿",
-};
 
 const llmStatusLabels = {
   not_configured: "未配置",
@@ -469,12 +463,14 @@ function renderEvaluation(report, targets = {}) {
 
 function renderHistory(items = []) {
   historyList.innerHTML = "";
+  if (railHistoryList) railHistoryList.innerHTML = "";
   beginnerHistoryList.innerHTML = "";
   if (!items.length) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
     empty.textContent = "暂无导出记录";
     historyList.appendChild(empty);
+    if (railHistoryList) railHistoryList.appendChild(empty.cloneNode(true));
     beginnerHistoryList.textContent = "暂无";
     return;
   }
@@ -488,13 +484,14 @@ function renderHistory(items = []) {
     const title = document.createElement("strong");
     title.textContent = `${item.grade || ""}${item.subject || ""}《${item.title || "教案"}》`;
     const meta = document.createElement("span");
-    meta.textContent = `${item.created_at || ""} · ${backendLabels[item.backend] || item.backend || "生成器"}`;
+    meta.textContent = item.created_at || "";
     text.append(title, meta);
 
     const action = document.createElement("span");
     action.textContent = "下载";
     link.append(text, action);
     historyList.appendChild(link);
+    if (railHistoryList) railHistoryList.appendChild(link.cloneNode(true));
   });
 
   items.slice(0, 2).forEach((item) => {
@@ -509,7 +506,7 @@ async function loadWorkflowSchema() {
   try {
     const response = await apiFetch("/api/workflow-schema");
     workflowSchema = await readApiJson(response);
-    workflowVersion.textContent = workflowSchema.version || "Teacher_skill V7";
+    workflowVersion.textContent = workflowSchema.version || "Teacher Skill V9";
   } catch {
     workflowSchema = null;
   }
@@ -718,7 +715,6 @@ function applyGenerationResult(data, formData = null) {
   currentReviewReport = data.review_report || null;
   currentWorkflowTrace = data.workflow_trace || [];
   currentGenerationBackend = data.generation_backend || null;
-  backendName.textContent = backendLabels[currentGenerationBackend] || currentGenerationBackend || "未知";
   currentRequestContext = formData
     ? readRequestContext(formData)
     : {
@@ -728,7 +724,7 @@ function applyGenerationResult(data, formData = null) {
 
   if (data.workflow_schema) {
     workflowSchema = data.workflow_schema;
-    workflowVersion.textContent = workflowSchema.version || "Teacher_skill V7";
+    workflowVersion.textContent = workflowSchema.version || "Teacher Skill V9";
   }
 
   refreshResultTitle(data.fields);
@@ -1021,7 +1017,7 @@ form.addEventListener("submit", async (event) => {
 
     applyGenerationResult(data, formData);
     exportButton.disabled = false;
-    setStatus(`教案已生成并完成教研审阅：${backendLabels[data.generation_backend] || "生成器"}`);
+    setStatus("教案已生成并完成教研审阅");
   } catch (error) {
     setStatus(error.message || "生成失败", true);
   } finally {

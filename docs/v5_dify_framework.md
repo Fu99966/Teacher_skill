@@ -91,7 +91,7 @@ flowchart TB
 - `rag_context.py`：轻量 RAG 骨架，先基于教材文本做重点片段抽取，后续可替换为 Chroma、FAISS 等向量库。
 - `teacher_agents.py`：多 Agent 教研链，包括执教老师生成、教研组长审阅、二次修订。
 - `lesson_generator.py`：支持模板字段反向驱动生成，遇到 `warm_up`、`safety_precautions` 等自定义占位符时会自动补充字段内容。
-- `history_store.py`：SQLite 历史记录，保存最近导出的教案、下载链接、生成来源和工作流 Trace。
+- `history_store.py`：SQLite 历史记录，保存最近导出的教案、下载链接和工作流 Trace。
 - `web_app.py`：新增 `/api/workflow-schema` 和 `/api/history`，生成/导出接口接入 V5 工作流。
 - Web 页面：新增框架链路、教研审阅结果和最近导出记录。
 

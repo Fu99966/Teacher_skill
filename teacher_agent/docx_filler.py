@@ -88,11 +88,29 @@ def _write_cell_preserving_layout(cell, value: Any) -> None:
         paragraph.add_run(line)
 
 
+def _append_cell_preserving_label(cell, value: Any) -> None:
+    text = _docx_text(value)
+    if not text:
+        return
+    if not cell.paragraphs:
+        cell.add_paragraph(text)
+        return
+
+    for paragraph in cell.paragraphs[1:]:
+        if not paragraph.text.strip():
+            _write_paragraph_preserving_style(paragraph, text)
+            return
+
+    paragraph = cell.add_paragraph()
+    paragraph.add_run(text)
+
+
 def _fill_table_mappings(document: Document, data: dict[str, Any], mappings: dict[str, Any]) -> None:
     for field, target in mappings.items():
         if field not in data:
             continue
-        if target.get("type") != "table_cell":
+        mapping_type = target.get("type")
+        if mapping_type not in {"table_cell", "table_cell_append"}:
             continue
 
         table_index = int(target.get("table", -1))
@@ -107,7 +125,11 @@ def _fill_table_mappings(document: Document, data: dict[str, Any], mappings: dic
         if row_index >= len(table.rows) or col_index >= len(table.rows[row_index].cells):
             continue
 
-        _write_cell_preserving_layout(table.rows[row_index].cells[col_index], data[field])
+        cell = table.rows[row_index].cells[col_index]
+        if mapping_type == "table_cell_append":
+            _append_cell_preserving_label(cell, data[field])
+        else:
+            _write_cell_preserving_layout(cell, data[field])
 
 
 def fill_docx_template(template_path: str | Path, data: dict[str, Any], output_path: str | Path) -> Path:

@@ -772,11 +772,11 @@ def run(host: str = "127.0.0.1", port: int = 8765) -> None:
         create_sample_template(SAMPLE_TEMPLATE)
 
     server = ThreadingHTTPServer((host, port), TeacherAgentHandler)
-    print(f"教师文档智能体已启动：http://{host}:{port}")
+    print(f"教案助手 Teacher Skill 已启动：http://{host}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("教师文档智能体已停止。")
+        print("教案助手 Teacher Skill 已停止。")
     finally:
         server.server_close()
 

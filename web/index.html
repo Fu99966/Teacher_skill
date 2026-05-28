@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>教师文档智能体</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260528-optional-material" />
+    <title>教案助手 Teacher Skill</title>
+    <link rel="stylesheet" href="/static/app.css?v=20260528-teacher-skill-v9" />
   </head>
   <body>
     <div class="app-shell">
@@ -12,8 +12,8 @@
         <div class="brand">
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <p class="eyebrow">Teacher_skill V7</p>
-            <h1>教师文档智能体</h1>
+            <p class="eyebrow">Teacher Skill</p>
+            <h1>教案助手</h1>
           </div>
         </div>
         <div class="mode-switch" role="tablist" aria-label="使用模式">
@@ -264,9 +264,29 @@
         </section>
 
         <section class="professional-workspace workspace" id="professional-workspace" aria-label="专业备课工作台" hidden>
+          <aside class="glass-panel workbench-rail" aria-label="工作台导航">
+            <div class="rail-section">
+              <p class="eyebrow">Teacher Skill</p>
+              <h2>模板优先</h2>
+              <p class="rail-note">先识别 Word 模板字段，再生成内容并写回原文档格式。</p>
+            </div>
+            <div class="rail-steps" aria-label="执行步骤">
+              <span>1 上传 Word 模板</span>
+              <span>2 检查可填字段</span>
+              <span>3 生成教案内容</span>
+              <span>4 下载原格式 Word</span>
+            </div>
+            <div class="rail-section">
+              <div class="mini-head">
+                <span>最近导出</span>
+                <strong>History</strong>
+              </div>
+              <div class="history-list compact-history" id="rail-history-list"></div>
+            </div>
+          </aside>
           <section class="glass-panel input-panel" aria-label="教案输入">
             <div class="panel-head">
-              <p class="eyebrow">Lesson Studio</p>
+              <p class="eyebrow">Teacher Skill</p>
               <h2>课程信息</h2>
             </div>
 
@@ -426,10 +446,6 @@
                 <span>模板模式</span>
                 <strong id="template-mode">待识别</strong>
               </div>
-              <div>
-                <span>生成来源</span>
-                <strong id="backend-name">待生成</strong>
-              </div>
               <div class="summary-wide">
                 <span>输出文件</span>
                 <strong id="file-name">未导出</strong>
@@ -488,6 +504,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=20260528-optional-material"></script>
+    <script src="/static/app.js?v=20260528-teacher-skill-v9"></script>
   </body>
 </html>

@@ -47,8 +47,8 @@ class WorkflowTraceEvent:
 
 def build_workflow_schema() -> dict:
     return {
-        "version": "Teacher_skill V5",
-        "name": "Dify-inspired Teacher Workflow",
+        "version": "Teacher Skill V9",
+        "name": "Lesson Assistant Workflow",
         "nodes": [
             {"id": "app_input", "label": "应用输入", "layer": "应用层"},
             {"id": "template_analyzer", "label": "模板解析", "layer": "编排层"},
@@ -145,7 +145,7 @@ class TeacherWorkflow:
             anti_repetition_context,
             few_shot_examples,
         )
-        self._mark("lesson_writer", "执教老师 Agent", "done", f"已生成 {len(field_map)} 个字段，来源：{generation_backend}。")
+        self._mark("lesson_writer", "执教老师 Agent", "done", f"已根据模板生成 {len(field_map)} 个字段。")
 
         context = {
             **request.to_dict(),
@@ -172,12 +172,12 @@ class TeacherWorkflow:
             "teaching_reviewer",
             "教研组长 Agent",
             "done",
-            f"预审完成，评分 {review_report.score}，来源：{review_report.backend}。",
+            f"预审完成，评分 {review_report.score}。",
         )
 
         fields, revision_backend = revise_lesson_after_review(fields, review_report, context)
         field_map.update(fields.to_dict())
-        self._mark("lesson_reviser", "二次修订 Agent", "done", f"已根据审阅意见修订，来源：{revision_backend}。")
+        self._mark("lesson_reviser", "二次修订 Agent", "done", "已根据审阅意见完成修订。")
 
         return {
             "fields": field_map,

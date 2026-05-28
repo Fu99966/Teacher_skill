@@ -1622,3 +1622,158 @@ body::after {
     padding: 18px;
   }
 }
+
+/* V9 Teacher Skill workbench layout */
+.app-shell {
+  width: min(100% - 28px, 1680px);
+  padding: 16px 0 28px;
+}
+
+.topbar {
+  min-height: 72px;
+  padding: 14px 18px;
+}
+
+.brand-mark {
+  width: 44px;
+  height: 44px;
+}
+
+.brand-text h1,
+.brand h1 {
+  font-size: clamp(26px, 2.4vw, 36px);
+}
+
+.app-main {
+  padding-top: 16px;
+}
+
+.workspace.professional-workspace,
+.professional-workspace {
+  grid-template-columns: minmax(210px, 0.55fr) minmax(420px, 1fr) minmax(520px, 1.15fr);
+  align-items: start;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.workbench-rail {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  min-height: calc(100vh - 124px);
+}
+
+.rail-section h2 {
+  font-size: 22px;
+}
+
+.rail-note {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  line-height: 1.65;
+  font-size: 13px;
+}
+
+.rail-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.rail-steps span {
+  display: block;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.66);
+  color: rgba(17, 24, 39, 0.76);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.compact-history {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.compact-history .history-item {
+  padding: 10px;
+}
+
+.input-panel,
+.output-panel {
+  padding: 18px;
+}
+
+.output-panel {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 124px);
+  overflow: auto;
+}
+
+.summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.summary-wide {
+  grid-column: 1 / -1;
+}
+
+.beginner-hero,
+.wizard-steps,
+.quick-prompts {
+  display: grid;
+}
+
+.beginner-hero {
+  margin-bottom: 14px;
+  padding: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.35fr);
+  align-items: center;
+}
+
+.wizard-layout {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.24fr) minmax(0, 1fr);
+  gap: 16px;
+  max-width: none;
+  margin: 0;
+}
+
+.wizard-steps {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  gap: 8px;
+  padding: 12px;
+}
+
+.wizard-card {
+  min-height: calc(100vh - 190px);
+  padding: clamp(24px, 3vw, 42px);
+}
+
+#beginner-agent-request {
+  min-height: 220px;
+}
+
+@media (max-width: 1100px) {
+  .workspace.professional-workspace,
+  .professional-workspace,
+  .wizard-layout,
+  .beginner-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .workbench-rail,
+  .output-panel,
+  .wizard-steps {
+    position: static;
+    min-height: auto;
+    max-height: none;
+  }
+}

@@ -51,6 +51,30 @@ def _cell_text(cell) -> str:
     return "\n".join(paragraph.text for paragraph in cell.paragraphs).strip()
 
 
+def _is_blankish(text: str) -> bool:
+    normalized = _normalize_label(text)
+    return not normalized or set(normalized) <= {"_", "-", "—", "一"}
+
+
+def _choose_table_target(row_texts: list[str], cell_index: int) -> tuple[int, str]:
+    """Choose the most likely fill cell for a table label.
+
+    Prefer a blank cell to the right. If the template puts the label and fill
+    area in the same merged cell, return the label cell with append mode.
+    """
+    for target_col in range(cell_index + 1, len(row_texts)):
+        target_text = row_texts[target_col]
+        if _match_field(target_text):
+            continue
+        if _is_blankish(target_text) or "{{" in target_text:
+            return target_col, "table_cell"
+
+    if cell_index + 1 < len(row_texts) and row_texts[cell_index + 1] != row_texts[cell_index]:
+        return cell_index + 1, "table_cell"
+
+    return cell_index, "table_cell_append"
+
+
 def iter_paragraphs(document: Document) -> Iterable:
     for paragraph in document.paragraphs:
         yield paragraph
@@ -113,11 +137,9 @@ def analyze_template(path: str | Path) -> dict[str, Any]:
                 field = _match_field(text)
                 if not field or field in placeholder_set or field in table_mappings:
                     continue
-                target_col = cell_index + 1 if cell_index + 1 < len(row.cells) else cell_index
-                if target_col == cell_index:
-                    continue
+                target_col, mapping_type = _choose_table_target(row_texts, cell_index)
                 table_mappings[field] = {
-                    "type": "table_cell",
+                    "type": mapping_type,
                     "table": table_index,
                     "row": row_index,
                     "col": target_col,
@@ -135,4 +157,6 @@ def analyze_template(path: str | Path) -> dict[str, Any]:
         "table_count": len(document.tables),
         "paragraph_count": len(document.paragraphs),
         "mode": "placeholder" if placeholders else "table_mapping",
+        "fillable_count": len(mapped_fields),
+        "needs_template_markers": not mapped_fields,
     }
