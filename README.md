@@ -9,7 +9,7 @@
 3. 支持上传学校 Word 模板，也可以使用系统标准模板。
 4. 支持动态模板字段，例如 `lesson_title`、`warm_up`、`safety_rules`、`assessment`。
 5. 生成链路为模板解析、知识上下文、反重复提示、教案生成、教研审阅、二次修订、Word 渲染、历史记录。
-6. 核心生成使用 OpenAI 兼容接口，默认模型为 `gpt-4o-mini`。
+6. 核心生成使用 DeepSeek API，默认模型为 `deepseek-v4-pro`。
 
 ## 快速开始
 
@@ -28,14 +28,9 @@ copy .env.example .env
 在 `.env` 中填写：
 
 ```text
-OPENAI_API_KEY=你的 OpenAI API Key
-OPENAI_MODEL=gpt-4o-mini
-```
-
-如果使用 OpenAI 兼容代理，也可以填写：
-
-```text
-OPENAI_BASE_URL=https://your-api-base-url/v1
+DEEPSEEK_API_KEY=你的 DeepSeek API Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-pro
 ```
 
 启动网页：

@@ -201,7 +201,7 @@ def check_deepseek_health(probe: bool = False) -> DeepSeekStatus:
             base_url=base_url,
             model=model,
             status="not_configured",
-            message="未配置 DEEPSEEK_API_KEY，当前会使用本地模板草稿。",
+            message="未配置 DEEPSEEK_API_KEY，当前无法调用真实 AI 生成。",
             error_type="not_configured",
         )
 

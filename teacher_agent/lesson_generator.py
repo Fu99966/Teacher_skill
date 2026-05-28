@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .deepseek_client import chat_json, is_deepseek_configured, load_local_env
+from .deepseek_client import DeepSeekError, chat_json, check_deepseek_health, is_deepseek_configured, load_local_env
 
 
 JSON_FIELD_NAMES = [
@@ -41,22 +40,7 @@ REFINE_ACTIONS = {
 
 
 class LessonGenerationError(RuntimeError):
-    """Raised when the real LLM generation path cannot complete."""
-
-
-@dataclass
-class GenerationStatus:
-    configured: bool
-    ok: bool
-    base_url: str
-    model: str
-    status: str
-    message: str
-    error_code: str = ""
-    error_type: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+    """Raised when a generated response cannot be parsed into template fields."""
 
 
 def infer_school_stage(grade: str) -> str:
@@ -234,78 +218,8 @@ def build_lesson_prompt(
 """.strip()
 
 
-def _load_openai_client() -> Any:
-    load_local_env()
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise LessonGenerationError("未配置 OPENAI_API_KEY，无法调用真实 LLM 生成。")
-
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise LessonGenerationError("未安装 openai 依赖，请先执行 pip install -r requirements.txt。") from exc
-
-    base_url = os.getenv("OPENAI_BASE_URL", "").strip()
-    if base_url:
-        return OpenAI(api_key=api_key, base_url=base_url)
-    return OpenAI(api_key=api_key)
-
-
-def check_generation_health(probe: bool = False) -> GenerationStatus:
-    load_local_env()
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or "https://api.openai.com/v1"
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
-    if not api_key:
-        return GenerationStatus(
-            configured=False,
-            ok=False,
-            base_url=base_url,
-            model=model,
-            status="not_configured",
-            message="未配置 OPENAI_API_KEY，当前无法调用真实 AI 生成。",
-            error_type="not_configured",
-        )
-
-    if not probe:
-        return GenerationStatus(
-            configured=True,
-            ok=True,
-            base_url=base_url,
-            model=model,
-            status="configured",
-            message="已检测到 OpenAI 兼容配置。点击诊断或生成时会发起真实请求。",
-        )
-
-    try:
-        client = _load_openai_client()
-        client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "只输出合法 JSON。"},
-                {"role": "user", "content": '{"ok": true}'},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0,
-        )
-        return GenerationStatus(
-            configured=True,
-            ok=True,
-            base_url=base_url,
-            model=model,
-            status="ok",
-            message="OpenAI 兼容接口连接正常。",
-        )
-    except Exception as exc:
-        return GenerationStatus(
-            configured=True,
-            ok=False,
-            base_url=base_url,
-            model=model,
-            status="error",
-            message=f"OpenAI 兼容接口诊断失败：{exc}",
-            error_type=exc.__class__.__name__,
-        )
+def check_generation_health(probe: bool = False) -> Any:
+    return check_deepseek_health(probe=probe)
 
 
 def draft_lesson_fields(
@@ -340,27 +254,21 @@ def draft_lesson_fields(
         anti_repetition_context=anti_repetition_context,
         few_shot_examples=few_shot_examples,
     )
-    client = _load_openai_client()
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": "你是教育文档 JSON 生成引擎。只输出合法 JSON，不输出 Markdown，不输出解释。",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
+    if not is_deepseek_configured():
+        raise DeepSeekError(
+            "DEEPSEEK_API_KEY is not configured",
+            error_type="not_configured",
+            user_message="未配置 DEEPSEEK_API_KEY，无法调用 DeepSeek 生成。请先在 .env 中填写。",
+        )
+
+    raw_data = chat_json(
+        prompt,
+        system="你是教育文档 JSON 生成引擎。只输出合法 JSON，不输出 Markdown，不输出解释。",
         temperature=0.78,
+        max_tokens=7600,
     )
-    content = response.choices[0].message.content or "{}"
-    try:
-        raw_data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise LessonGenerationError(f"LLM 返回内容不是合法 JSON：{exc}") from exc
     if not isinstance(raw_data, dict):
-        raise LessonGenerationError("LLM 返回 JSON 不是对象，无法填充 Word 模板。")
+        raise LessonGenerationError("DeepSeek 返回 JSON 不是对象，无法填充 Word 模板。")
     return coerce_dynamic_fields(raw_data, fields)
 
 
@@ -396,7 +304,8 @@ def draft_lesson_fields_with_source(
         anti_repetition_context=anti_repetition_context,
         few_shot_examples=few_shot_examples,
     )
-    return fields, os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+    load_local_env()
+    return fields, os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro").strip() or "deepseek-v4-pro"
 
 
 def draft_lesson_document_fields_with_source(
