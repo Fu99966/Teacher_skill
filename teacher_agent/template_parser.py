@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
 from docx import Document
 from docx.oxml.ns import qn
 
+from .docx_grid import GridCell, parse_table_grid, find_cell_by_grid
+
 PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([^{}\r\n\t<>]+?)\s*\}\}")
 
 # ── Field label mapping ──
-# "主要教学内容" MUST map to teaching_process, NOT lesson_title.
 FIELD_LABELS: dict[str, tuple[str, ...]] = {
     "lesson_title": ("课题", "课题名称", "题目", "课题（含章节号）", "课题(含章节号)"),
     "subject": ("学科", "课程", "课程名称", "科目"),
@@ -48,15 +48,12 @@ FIELD_LABELS: dict[str, tuple[str, ...]] = {
     "reflection": ("课后小记", "课后小结", "教学反思", "课后反思", "教学后记"),
 }
 
-# Fields that MUST prefer next-row fill over right-side fill
 NEXT_ROW_PREFERRED_FIELDS = {"teaching_process", "teaching_method"}
 
-# All known aliases sorted by length (longer = higher priority)
 FIELD_LABELS_BY_ALIAS: list[tuple[str, str]] = sorted(
     [(f, a) for f, aliases in FIELD_LABELS.items() for a in aliases],
     key=lambda x: -len(x[1]),
 )
-
 
 DIRECT_LABEL_FIELDS = {
     "教材分析", "课程标准", "核心素养", "学习任务", "学习活动",
@@ -67,171 +64,12 @@ DIRECT_LABEL_FIELDS = {
 }
 
 
-# ── GridCell: true OOXML cell representation ───────────────────────────
-
-@dataclass
-class GridCell:
-    """Represents one real cell in a Word table grid."""
-    row: int
-    physical_col: int      # index within row.cells
-    grid_col: int          # true OOXML grid column
-    grid_span: int         # w:gridSpan value
-    text: str
-    normalized_text: str
-    cell: Any              # python-docx Cell proxy
-
-
-# ── Real OOXML grid parsing ────────────────────────────────────────────
-
-def parse_table_grid(table) -> list[list[GridCell]]:
-    """Parse a Word table's OOXML grid to build true grid layout.
-
-    Reads w:tblGrid for total columns, then iterates each w:tr and
-    each w:tc to compute grid_col from gridSpan.
-    Handles vertical merges (w:vMerge) by repeating cell into subsequent rows.
-
-    Returns: grid[row_index][grid_col_index] = GridCell
-    """
-    tbl = table._tbl
-
-    # Read total grid columns from w:tblGrid
-    tbl_grid = tbl.find(qn('w:tblGrid'))
-    num_cols = 0
-    if tbl_grid is not None:
-        for grid_col_el in tbl_grid.findall(qn('w:gridCol')):
-            num_cols += 1
-    # Fallback: count max columns from first row
-    if num_cols <= 0:
-        for tr in tbl.findall(qn('w:tr')):
-            span_total = 0
-            for tc in tr.findall(qn('w:tc')):
-                tc_pr = tc.find(qn('w:tcPr'))
-                gs = 1
-                if tc_pr is not None:
-                    gs_el = tc_pr.find(qn('w:gridSpan'))
-                    if gs_el is not None and gs_el.get(qn('w:val')):
-                        gs = int(gs_el.get(qn('w:val')))
-                span_total += gs
-            if span_total > num_cols:
-                num_cols = span_total
-
-    if num_cols <= 0:
-        num_cols = max((len(row.cells) for row in table.rows), default=2)
-
-    # Build grid row-by-row from OOXML
-    grid: list[list[GridCell | None]] = []
-    vmerge_carry: dict[int, GridCell] = {}  # grid_col → cell carried from prev row
-
-    for row_index, row in enumerate(table.rows):
-        row_grid: list[GridCell | None] = [None] * num_cols
-        tc_elements = row._tr.findall(qn('w:tc'))
-        physical_idx = 0
-        grid_col = 0
-
-        for tc in tc_elements:
-            # Skip if this grid_col was filled by a vMerge carry from previous row
-            while grid_col < num_cols and row_grid[grid_col] is not None:
-                grid_col += 1
-            if grid_col >= num_cols:
-                break
-
-            tc_pr = tc.find(qn('w:tcPr'))
-            grid_span = 1
-            is_vmerge_continue = False
-            is_vmerge_restart = False
-
-            if tc_pr is not None:
-                gs_el = tc_pr.find(qn('w:gridSpan'))
-                if gs_el is not None and gs_el.get(qn('w:val')):
-                    grid_span = int(gs_el.get(qn('w:val')))
-
-                vm_el = tc_pr.find(qn('w:vMerge'))
-                if vm_el is not None:
-                    val = vm_el.get(qn('w:val'))
-                    if val == 'restart':
-                        is_vmerge_restart = True
-                    else:
-                        is_vmerge_continue = True
-
-            # Get text
-            cell_proxy = table.cell(row_index, physical_idx) if physical_idx < len(row.cells) else None
-            text = ""
-            normalized = ""
-            if cell_proxy is not None:
-                text = "\n".join(p.text for p in cell_proxy.paragraphs).strip()
-                normalized = re.sub(r"[\s:：；;、，,。.·\-—–（）()\[\]【】<>《》]+", "", text)
-
-            gcell = GridCell(
-                row=row_index,
-                physical_col=physical_idx,
-                grid_col=grid_col,
-                grid_span=grid_span,
-                text=text,
-                normalized_text=normalized,
-                cell=cell_proxy,
-            )
-
-            # Place in grid
-            for g in range(grid_span):
-                pos = grid_col + g
-                if pos < num_cols:
-                    row_grid[pos] = gcell
-
-            # Handle vMerge: carry to next row
-            if is_vmerge_restart or is_vmerge_continue:
-                # Find the original cell this continues
-                base_gcell = gcell
-                if is_vmerge_continue:
-                    base_gcell = vmerge_carry.get(grid_col, gcell)
-                for g in range(grid_span):
-                    vmerge_carry[grid_col + g] = base_gcell
-            elif not is_vmerge_continue:
-                # Clear carry for this column
-                for g in range(grid_span):
-                    vmerge_carry.pop(grid_col + g, None)
-
-            grid_col += grid_span
-            physical_idx += 1
-
-        # Fill vMerge carries that weren't covered by explicit tc elements
-        for gcol, carry_cell in list(vmerge_carry.items()):
-            if row_grid[gcol] is None:
-                # Extend the carry cell into this row
-                carry_cell.grid_span = 1  # per-column carry
-                row_grid[gcol] = carry_cell
-
-        grid.append(row_grid)
-
-    return grid
-
-
-def get_grid_cell_at(table, grid: list[list[GridCell]], row: int, grid_col: int) -> Any | None:
-    """Get the python-docx Cell at a given (row, grid_col) in the grid."""
-    if row < 0 or row >= len(grid):
-        return None
-    row_grid = grid[row]
-    if grid_col < 0 or grid_col >= len(row_grid):
-        return None
-    gcell = row_grid[grid_col]
-    if gcell is None:
-        return None
-    return gcell.cell
-
-
-# ── Helpers ────────────────────────────────────────────────────────────
-
-def _sanitize_field_name(text: str) -> str:
-    return re.sub(r"[\r\n\t<>]", "", str(text or "")).replace("{{", "").replace("}}", "").strip()
-
+# ── Helpers ──
 
 def _normalize_label(text: str) -> str:
     text = PLACEHOLDER_PATTERN.sub("", text or "")
     text = re.sub(r"[\s:：；;、，,。.·\-—–（）()\[\]【】<>《》]+", "", text)
     return text.strip()
-
-
-def _cell_text(cell) -> str:
-    return "\n".join(paragraph.text for paragraph in cell.paragraphs).strip()
 
 
 def _is_blankish(text: str) -> bool:
@@ -268,13 +106,13 @@ def _add_ordered(target: list[str], field: str) -> None:
 def find_placeholders_in_text(text: str) -> list[str]:
     fields: list[str] = []
     for match in PLACEHOLDER_PATTERN.finditer(text or ""):
-        field = _sanitize_field_name(match.group(1))
+        field = re.sub(r"[\r\n\t<>]", "", match.group(1).strip())
         if field and field not in fields:
             fields.append(field)
     return fields
 
 
-# ── Fill target selection ───────────────────────────────────────────────
+# ── Fill target selection ──
 
 def _choose_table_target(
     field: str,
@@ -283,57 +121,44 @@ def _choose_table_target(
     label_grid_col: int,
     label_grid_span: int,
 ) -> tuple[int, int, int | None, str, str]:
-    """Choose the best fill target cell for a label.
-
-    Returns: (target_grid_col, target_grid_span, target_row_override, mapping_type, target_type)
-
-    Rules (priority differs by field):
-     A) For NEXT_ROW_PREFERRED_FIELDS: check next-row same grid_cols first
-     B) Right-side fill: blank cell to the right
-     C) Next-row fill: blank cell in next row
-     D) Append in-place
-    """
+    """Returns (target_grid_col, target_grid_span, target_row_override, mapping_type, target_type)."""
     num_cols = len(grid[0]) if grid else 0
 
-    def _blank_in_grid(row_idx: int, col_start: int, col_end: int) -> bool:
+    def _all_blank(row_idx: int, col_start: int, col_end: int) -> bool:
         if row_idx < 0 or row_idx >= len(grid):
             return False
         r = grid[row_idx]
         for c in range(col_start, min(col_end, len(r))):
             gcell = r[c]
-            if gcell is None:
-                continue
-            if not _is_blankish(gcell.text):
+            if gcell is not None and not _is_blankish(gcell.text):
                 return False
         return True
 
-    # ── Rule A (for NEXT_ROW_PREFERRED_FIELDS): next-row first ──
+    # A) NEXT_ROW_PREFERRED: check next-row first
     if field in NEXT_ROW_PREFERRED_FIELDS:
-        next_row = label_row + 1
-        if next_row < len(grid):
-            if _blank_in_grid(next_row, label_grid_col, label_grid_col + label_grid_span):
-                return (label_grid_col, label_grid_span, next_row, "table_cell", "next_row_cell")
+        nr = label_row + 1
+        if nr < len(grid):
+            if _all_blank(nr, label_grid_col, label_grid_col + label_grid_span):
+                return (label_grid_col, label_grid_span, nr, "table_cell", "next_row_cell")
 
-    # ── Rule B: right-side blank cell ──
-    right_col = label_grid_col + label_grid_span
-    if right_col < num_cols:
-        r = grid[label_row]
-        gcell = r[right_col]
-        if gcell is not None:
-            if _is_blankish(gcell.text) or "{{" in gcell.text:
-                return (gcell.grid_col, gcell.grid_span, None, "table_cell", "right_cell")
+    # B) Right-side blank
+    rc = label_grid_col + label_grid_span
+    if rc < num_cols:
+        gcell = grid[label_row][rc]
+        if gcell is not None and (_is_blankish(gcell.text) or "{{" in gcell.text):
+            return (gcell.grid_col, gcell.grid_span, None, "table_cell", "right_cell")
 
-    # ── Rule C: next-row fill (for non-preferred fields fallback) ──
-    next_row = label_row + 1
-    if next_row < len(grid):
-        if _blank_in_grid(next_row, label_grid_col, label_grid_col + label_grid_span):
-            return (label_grid_col, label_grid_span, next_row, "table_cell", "next_row_cell")
+    # C) Next-row (fallback for non-preferred)
+    nr = label_row + 1
+    if nr < len(grid):
+        if _all_blank(nr, label_grid_col, label_grid_col + label_grid_span):
+            return (label_grid_col, label_grid_span, nr, "table_cell", "next_row_cell")
 
-    # ── Rule D: append ──
+    # D) Append in-place
     return (label_grid_col, label_grid_span, None, "table_cell_append", "append_label_cell")
 
 
-# ── Table scanning ──────────────────────────────────────────────────────
+# ── Table scanning ──
 
 def _scan_table_labels(
     table,
@@ -345,48 +170,30 @@ def _scan_table_labels(
     field_context: dict[str, list[dict[str, Any]]],
     table_mappings: dict[str, list[dict[str, Any]]],
 ) -> tuple[list[list[GridCell]], list[list[str]]]:
-    """Scan a table using real OOXML grid. Returns (grid, row_texts)."""
     grid = parse_table_grid(table)
     num_rows = len(grid)
     num_cols = len(grid[0]) if grid else 0
 
     row_texts: list[list[str]] = []
-    for row_idx in range(num_rows):
-        texts = []
-        for gc in range(num_cols):
-            gcell = grid[row_idx][gc]
-            if gcell is not None and gcell.grid_col == gc:
-                texts.append(gcell.text)
-            else:
-                texts.append("")
-        row_texts.append(texts)
+    for ri in range(num_rows):
+        row_texts.append([grid[ri][c].text if (grid[ri][c] and grid[ri][c].grid_col == c) else "" for c in range(num_cols)])
 
-    # Scan each grid cell
-    scanned_cells: set[int] = set()
-    for row_idx in range(num_rows):
+    scanned: set[int] = set()
+    for ri in range(num_rows):
         for gc in range(num_cols):
-            gcell = grid[row_idx][gc]
-            if gcell is None:
+            gcell = grid[ri][gc]
+            if gcell is None or gcell.grid_col != gc:
                 continue
-            if gcell.grid_col != gc:
-                continue  # only process at the cell's origin grid_col
-            cell_id = id(gcell.cell._tc) if gcell.cell else (row_idx * 10000 + gc)
-            if cell_id in scanned_cells:
+            cid = id(gcell.cell._tc) if gcell.cell else (ri * 10000 + gc)
+            if cid in scanned:
                 continue
-            scanned_cells.add(cell_id)
+            scanned.add(cid)
 
             text = gcell.text
-
-            # Placeholders
             for pf in find_placeholders_in_text(text):
                 _add_ordered(mapped_fields, pf)
-                field_context.setdefault(pf, []).append({
-                    "source": "placeholder", "location": location,
-                    "section": section, "table": table_index,
-                    "row": row_idx, "grid_col": gc, "text": text,
-                })
+                field_context.setdefault(pf, []).append({"source": "placeholder", "location": location, "section": section, "table": table_index, "row": ri, "grid_col": gc, "text": text})
 
-            # Known labels - match_field OR direct_field
             field = _match_field(text)
             if not field:
                 field = _direct_field_from_label(text)
@@ -394,122 +201,86 @@ def _scan_table_labels(
                 continue
 
             _add_ordered(mapped_fields, field)
+            tgt_col, tgt_span, tgt_row_override, map_type, target_type = _choose_table_target(field, grid, ri, gcell.grid_col, gcell.grid_span)
 
-            tgt_col, tgt_span, tgt_row_override, map_type, target_type = _choose_table_target(
-                field, grid, row_idx, gcell.grid_col, gcell.grid_span
-            )
-
-            effective_row = tgt_row_override if tgt_row_override is not None else row_idx
+            effective_row = tgt_row_override if tgt_row_override is not None else ri
             effective_target_text = ""
-            tgt_physical_col = gcell.physical_col  # fallback to label cell's physical_col
-            if effective_row < len(grid) and tgt_col < num_cols:
+            tgt_physical = gcell.physical_col
+            if effective_row < num_rows and tgt_col < num_cols:
                 tgt_gcell = grid[effective_row][tgt_col]
                 if tgt_gcell is not None:
                     effective_target_text = tgt_gcell.text
-                    tgt_physical_col = tgt_gcell.physical_col
+                    tgt_physical = tgt_gcell.physical_col
 
-            target_info: dict[str, Any] = {
-                "field": field,
-                "type": map_type,
-                "target_type": target_type,
-                "location": location,
-                "section": section,
-                "table": table_index,
-                "label_row": row_idx,
-                "label_grid_col": gcell.grid_col,
-                "label_grid_span": gcell.grid_span,
-                "row": effective_row,
-                "grid_col": tgt_col,
-                "grid_span": tgt_span,
-                "physical_col": tgt_physical_col,
-                "col": tgt_physical_col,  # backward compat: target cell's physical col
-                "label": text,
-                "target_text": effective_target_text,
-            }
-            table_mappings.setdefault(field, []).append(target_info)
-
+            table_mappings.setdefault(field, []).append({
+                "field": field, "type": map_type, "target_type": target_type,
+                "location": location, "section": section, "table": table_index,
+                "label_row": ri, "label_grid_col": gcell.grid_col, "label_grid_span": gcell.grid_span,
+                "row": effective_row, "grid_col": tgt_col, "grid_span": tgt_span,
+                "physical_col": tgt_physical, "col": tgt_physical,
+                "label": text, "target_text": effective_target_text,
+            })
             field_context.setdefault(field, []).append({
-                "source": "table_label",
-                "location": location,
-                "section": section,
-                "table": table_index,
-                "field": field,
-                "label": text,
-                "label_row": row_idx,
-                "label_grid_col": gcell.grid_col,
-                "target_row": effective_row,
-                "target_grid_col": tgt_col,
-                "target_type": target_type,
-                "mapping_type": map_type,
+                "source": "table_label", "location": location, "section": section,
+                "table": table_index, "field": field, "label": text,
+                "label_row": ri, "label_grid_col": gcell.grid_col,
+                "target_row": effective_row, "target_grid_col": tgt_col,
+                "target_type": target_type, "mapping_type": map_type,
             })
 
     return grid, row_texts
 
 
-# ── Paragraph iteration ─────────────────────────────────────────────────
+# ── Paragraph iteration ──
 
 def _paragraph_location(paragraph) -> str:
     parent = paragraph._p.getparent()
     while parent is not None:
         tag = str(parent.tag)
-        if tag.endswith("}hdr"):
-            return "header"
-        if tag.endswith("}ftr"):
-            return "footer"
-        if tag.endswith("}tc"):
-            return "table"
+        if tag.endswith("}hdr"): return "header"
+        if tag.endswith("}ftr"): return "footer"
+        if tag.endswith("}tc"): return "table"
         parent = parent.getparent()
     return "body"
 
 
 def iter_paragraphs(document: Document) -> Iterable:
-    for paragraph in document.paragraphs:
-        yield paragraph
-    for table in document.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    yield paragraph
-    for section in document.sections:
-        for paragraph in section.header.paragraphs:
-            yield paragraph
-        for paragraph in section.footer.paragraphs:
-            yield paragraph
-        for table in section.header.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        yield paragraph
-        for table in section.footer.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        yield paragraph
+    for p in document.paragraphs: yield p
+    for t in document.tables:
+        for r in t.rows:
+            for c in r.cells:
+                for p in c.paragraphs: yield p
+    for s in document.sections:
+        for p in s.header.paragraphs: yield p
+        for p in s.footer.paragraphs: yield p
+        for t in s.header.tables:
+            for r in t.rows:
+                for c in r.cells:
+                    for p in c.paragraphs: yield p
+        for t in s.footer.tables:
+            for r in t.rows:
+                for c in r.cells:
+                    for p in c.paragraphs: yield p
 
 
-# ── Public API ──────────────────────────────────────────────────────────
+# ── Public API ──
 
 def scan_template(path: str | Path) -> list[str]:
     document = Document(str(path))
     fields: list[str] = []
-    for paragraph in iter_paragraphs(document):
-        for field in find_placeholders_in_text(paragraph.text):
-            _add_ordered(fields, field)
+    for p in iter_paragraphs(document):
+        for f in find_placeholders_in_text(p.text):
+            _add_ordered(fields, f)
     return fields
 
 
 def _scan_placeholders(document: Document) -> tuple[list[str], dict[str, list[dict[str, Any]]]]:
     placeholders: list[str] = []
     occurrences: dict[str, list[dict[str, Any]]] = {}
-    for paragraph_index, paragraph in enumerate(iter_paragraphs(document)):
-        for field in find_placeholders_in_text(paragraph.text):
-            _add_ordered(placeholders, field)
-            occurrences.setdefault(field, []).append({
-                "source": "placeholder",
-                "location": _paragraph_location(paragraph),
-                "paragraph": paragraph_index,
-                "text": paragraph.text,
-            })
+    for pi, p in enumerate(iter_paragraphs(document)):
+        for f in find_placeholders_in_text(p.text):
+            _add_ordered(placeholders, f)
+            occurrences.setdefault(f, []).append({"source": "placeholder", "location": _paragraph_location(p), "paragraph": pi, "text": p.text})
     return placeholders, occurrences
 
 
@@ -520,82 +291,40 @@ def analyze_template(path: str | Path) -> dict[str, Any]:
     table_mappings: dict[str, list[dict[str, Any]]] = {}
     tables: list[dict[str, Any]] = []
 
-    for field in placeholders:
-        _add_ordered(mapped_fields, field)
+    for f in placeholders:
+        _add_ordered(mapped_fields, f)
 
-    for table_index, table in enumerate(document.tables):
-        grid, row_texts = _scan_table_labels(
-            table, table_index=table_index, location="body_table",
-            section=None, mapped_fields=mapped_fields,
-            field_context=field_context, table_mappings=table_mappings,
-        )
-        cells_serializable = []
-        seen = set()
+    for ti, table in enumerate(document.tables):
+        grid, row_texts = _scan_table_labels(table, table_index=ti, location="body_table", section=None, mapped_fields=mapped_fields, field_context=field_context, table_mappings=table_mappings)
+        cells = []
+        seen_c = set()
         for grid_row in grid:
             for gc, gcell in enumerate(grid_row):
-                if gcell is None:
-                    continue
+                if gcell is None: continue
                 cid = (gcell.row, gcell.grid_col)
-                if cid in seen:
-                    continue
-                seen.add(cid)
-                cells_serializable.append({
-                    "row": gcell.row,
-                    "physical_col": gcell.physical_col,
-                    "grid_col": gcell.grid_col,
-                    "grid_span": gcell.grid_span,
-                    "text": gcell.text,
-                    "normalized_text": gcell.normalized_text,
-                })
-        tables.append({
-            "index": table_index, "location": "body_table",
-            "rows": row_texts, "grid_cells": cells_serializable,
-            "num_rows": len(grid),
-            "num_cols": len(grid[0]) if grid else 0,
-        })
+                if cid in seen_c: continue
+                seen_c.add(cid)
+                cells.append({"row": gcell.row, "physical_col": gcell.physical_col, "grid_col": gcell.grid_col, "grid_span": gcell.grid_span, "text": gcell.text, "normalized_text": gcell.normalized_text})
+        tables.append({"index": ti, "location": "body_table", "rows": row_texts, "grid_cells": cells, "num_rows": len(grid), "num_cols": len(grid[0]) if grid else 0})
 
-    for section_index, section in enumerate(document.sections):
-        for table_index, table in enumerate(section.header.tables):
-            grid, row_texts = _scan_table_labels(
-                table, table_index=table_index, location="header_table",
-                section=section_index, mapped_fields=mapped_fields,
-                field_context=field_context, table_mappings=table_mappings,
-            )
-            tables.append({
-                "index": table_index, "section": section_index,
-                "location": "header_table", "rows": row_texts,
-            })
-
-        for table_index, table in enumerate(section.footer.tables):
-            grid, row_texts = _scan_table_labels(
-                table, table_index=table_index, location="footer_table",
-                section=section_index, mapped_fields=mapped_fields,
-                field_context=field_context, table_mappings=table_mappings,
-            )
-            tables.append({
-                "index": table_index, "section": section_index,
-                "location": "footer_table", "rows": row_texts,
-            })
+    for si, section in enumerate(document.sections):
+        for ti, table in enumerate(section.header.tables):
+            grid, row_texts = _scan_table_labels(table, table_index=ti, location="header_table", section=si, mapped_fields=mapped_fields, field_context=field_context, table_mappings=table_mappings)
+            tables.append({"index": ti, "section": si, "location": "header_table", "rows": row_texts})
+        for ti, table in enumerate(section.footer.tables):
+            grid, row_texts = _scan_table_labels(table, table_index=ti, location="footer_table", section=si, mapped_fields=mapped_fields, field_context=field_context, table_mappings=table_mappings)
+            tables.append({"index": ti, "section": si, "location": "footer_table", "rows": row_texts})
 
     errors: list[str] = []
-    warnings: list[str] = []
     if not mapped_fields:
         errors.append('未识别到可填写字段。请在模板中加入 {{field_name}} 占位符，或使用可识别的表格标签，例如"教学目标""教学过程""作业设计"。')
-    if placeholders and table_mappings:
-        warnings.append("模板同时包含占位符和表格标签，系统会按模板出现顺序填充两类字段。")
 
     return {
-        "placeholders": placeholders,
-        "placeholder_occurrences": field_context,
-        "table_mappings": table_mappings,
-        "mapped_fields": mapped_fields,
-        "field_context": field_context,
-        "tables": tables,
-        "table_count": len(document.tables),
-        "paragraph_count": len(document.paragraphs),
+        "placeholders": placeholders, "placeholder_occurrences": field_context,
+        "table_mappings": table_mappings, "mapped_fields": mapped_fields,
+        "field_context": field_context, "tables": tables,
+        "table_count": len(document.tables), "paragraph_count": len(document.paragraphs),
         "mode": "mixed" if placeholders and table_mappings else ("placeholder" if placeholders else "table_mapping"),
-        "fillable_count": len(mapped_fields),
-        "needs_template_markers": not mapped_fields,
-        "warnings": warnings,
-        "errors": errors,
+        "fillable_count": len(mapped_fields), "needs_template_markers": not mapped_fields,
+        "warnings": [], "errors": errors,
     }

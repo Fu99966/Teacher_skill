@@ -284,6 +284,53 @@ def cmd_diagnose_template(args: argparse.Namespace) -> None:
 
     (output_dir / "root_cause.md").write_text("\n".join(root_cause_parts), encoding="utf-8")
 
+    # Step 7: teacher_report.md (human-readable)
+    teacher_lines: list[str] = []
+    field_labels = {
+        "lesson_title": "课题", "teaching_goals": "教学目的", "teaching_key_difficult": "重点难点",
+        "teaching_process": "主要教学内容", "teaching_method": "教学方法的运用",
+        "homework": "作业", "reflection": "课后小记",
+        "teaching_environment": "教学环境", "teaching_aids": "教具挂图",
+        "teaching_date": "授课日期", "class_name": "班级", "class_type": "授课类型", "class_hour": "课时",
+    }
+    teacher_lines.append("# 模板诊断报告")
+    teacher_lines.append("")
+    teacher_lines.append("## 识别结果")
+    teacher_lines.append("")
+    for f in analysis.get("mapped_fields", []):
+        label = field_labels.get(f, f)
+        targets = analysis.get("table_mappings", {}).get(f, [])
+        t0 = targets[0] if targets else {}
+        ttype = t0.get("target_type", "fill")
+        pos_hint = {
+            "next_row_cell": "填写位置为下一行",
+            "right_cell": "填写位置为右侧单元格",
+            "append_label_cell": "填写位置为标签格内追加",
+        }.get(ttype, "可填写")
+        teacher_lines.append(f"✅ **{label}**：已识别，{pos_hint}")
+    teacher_lines.append("")
+    teacher_lines.append("## 写入结果")
+    teacher_lines.append("")
+    if report.errors:
+        teacher_lines.append(f"❌ 导出失败：{'；'.join(report.errors)}")
+        teacher_lines.append("")
+        teacher_lines.append("可能原因：")
+        teacher_lines.append("1. 模板结构过于复杂；")
+        teacher_lines.append("2. 填写区域不是普通 Word 表格单元格；")
+        teacher_lines.append("3. 字段内容为空；")
+        teacher_lines.append("4. 建议在模板中手动添加 {{占位符}}。")
+    else:
+        teacher_lines.append(f"成功写入 **{report.filled_non_empty_count}** 个字段，共写入 **{report.table_write_count}** 个位置。")
+        fwc = report.field_write_counts or {}
+        for f, c in sorted(fwc.items(), key=lambda x: -x[1]):
+            label = field_labels.get(f, f)
+            teacher_lines.append(f"- {label}：写入 {c} 个位置")
+        teacher_lines.append("")
+        teacher_lines.append("## 风险提示")
+        teacher_lines.append("")
+        teacher_lines.append("本模板包含合并单元格，系统已按表格网格定位。如果内容位置不正确，建议使用标准占位符模板。")
+    (output_dir / "teacher_report.md").write_text("\n".join(teacher_lines), encoding="utf-8")
+
     # Print summary
     payload = {
         "template": args.template,
