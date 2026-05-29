@@ -95,3 +95,19 @@ def test_missing_field_keeps_placeholder_and_reports(tmp_path):
     assert Document(output).paragraphs[0].text == "{{lesson_title}}"
     assert report.missing_fields == ["lesson_title"]
     assert report.remaining_placeholders == ["lesson_title"]
+
+
+def test_header_table_label_can_be_filled(tmp_path):
+    template = tmp_path / "header-table.docx"
+    output = tmp_path / "header-table-out.docx"
+    document = Document()
+    table = document.sections[0].header.add_table(rows=1, cols=2, width=1000000)
+    table.cell(0, 0).text = "课题"
+    table.cell(0, 1).text = ""
+    document.save(template)
+
+    report = fill_docx_template(template, {"lesson_title": "页眉课题"}, output)
+    filled = Document(output)
+
+    assert filled.sections[0].header.tables[0].cell(0, 1).text == "页眉课题"
+    assert "lesson_title" in report.table_fields_filled

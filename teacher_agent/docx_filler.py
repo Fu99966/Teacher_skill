@@ -196,6 +196,30 @@ def _append_cell_preserving_label(cell, value: Any) -> None:
         paragraph.add_run(line)
 
 
+def _resolve_table(document: Document, target: dict[str, Any]):
+    location = target.get("location") or "body_table"
+    table_index = int(target.get("table", -1))
+    if table_index < 0:
+        return None
+
+    if location == "header_table":
+        section_index = int(target.get("section") or 0)
+        if section_index >= len(document.sections):
+            return None
+        tables = document.sections[section_index].header.tables
+    elif location == "footer_table":
+        section_index = int(target.get("section") or 0)
+        if section_index >= len(document.sections):
+            return None
+        tables = document.sections[section_index].footer.tables
+    else:
+        tables = document.tables
+
+    if table_index >= len(tables):
+        return None
+    return tables[table_index]
+
+
 def _fill_table_mappings(document: Document, data: dict[str, Any], mappings: dict[str, Any], report: FillReport) -> None:
     for field_name, target in mappings.items():
         if field_name not in data:
@@ -206,15 +230,15 @@ def _fill_table_mappings(document: Document, data: dict[str, Any], mappings: dic
         if mapping_type not in {"table_cell", "table_cell_append"}:
             continue
 
-        table_index = int(target.get("table", -1))
         row_index = int(target.get("row", -1))
         col_index = int(target.get("col", -1))
-        if table_index < 0 or row_index < 0 or col_index < 0:
-            continue
-        if table_index >= len(document.tables):
+        if row_index < 0 or col_index < 0:
             continue
 
-        table = document.tables[table_index]
+        table = _resolve_table(document, target)
+        if table is None:
+            continue
+
         if row_index >= len(table.rows) or col_index >= len(table.rows[row_index].cells):
             continue
 

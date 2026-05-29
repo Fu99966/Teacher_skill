@@ -134,7 +134,6 @@ def coerce_dynamic_fields(data: dict[str, Any] | dict, dynamic_fields: list[str]
 
 
 def _field_label_hint(field_name: str) -> str:
-    label = field_name.replace("_", " ").replace("-", " ")
     known = {
         "lesson_title": "课题名称",
         "subject": "学科",
@@ -159,7 +158,7 @@ def _field_label_hint(field_name: str) -> str:
         "core_training": "核心训练",
         "assessment": "评价方式",
     }
-    return known.get(field_name, label)
+    return known.get(field_name, field_name.replace("_", " ").replace("-", " "))
 
 
 def _local_fallback_fields(
@@ -174,6 +173,7 @@ def _local_fallback_fields(
     material_hint = re.sub(r"\s+", " ", material).strip()
     if len(material_hint) > 140:
         material_hint = material_hint[:140] + "..."
+
     base: dict[str, str] = {
         "lesson_title": title,
         "subject": subject,
@@ -224,7 +224,7 @@ def build_lesson_prompt(
     fields_json = json.dumps(fields, ensure_ascii=False)
     stage = _stage_name(infer_school_stage(grade))
     material_text = material.strip() or "用户没有提供教材内容，请生成通用版教案，并避免编造具体教材页码。"
-    creative = creative_mode.strip() or "常规稳妥"
+    creative = creative_mode.strip() or "常规稳健"
 
     anti_repetition_block = ""
     if anti_repetition_context.strip():
@@ -256,25 +256,24 @@ def build_lesson_prompt(
 
 # 核心任务
 根据用户提供的课程信息，为 Word 模板自动填充生成教学文档内容。
-你必须输出一个纯 JSON 对象，JSON 的 Key 必须严格且仅包含以下列表中的字段：
+你必须输出一个纯 JSON 对象，JSON 的 Key 必须严格且仅包含以下字段：
 {fields_json}
 
-请根据字段的字面意思生成对应的教学内容。字段可能来自学校 Word 模板，不一定是标准教案字段；例如 warm_up、safety_rules、core_training、assessment 等，都要按字段语义生成可直接填入模板的文本。
+请根据字段字面意思生成对应内容。字段可能来自学校 Word 模板，不一定是标准教案字段；例如 warm_up、safety_rules、core_training、assessment 等，都要按字段语义生成可直接填入模板的文本。
 
 # 学段差异化原则
 当前识别学段：{stage}
-1. 小学阶段：激发兴趣、习惯养成、直观感知，多用游戏化教学、情境导入、实物展示、小组互助。
+1. 小学阶段：激发兴趣、习惯养成、直观感知，多用情境导入、实物展示、小组互助。
 2. 中学阶段：知识体系构建、逻辑思维培养、考点对齐，强调自主探究、典型例题、变式训练和迁移应用。
 3. 大学阶段：学术视野、专业前沿、独立研究与实践应用，采用研讨式、案例教学或项目驱动。
 
 # 动态生成要求
-1. 课型适配：本次课型为「{class_type}」，内容必须符合该课型的典型特征。
-2. 教学法/风格：采用「{teaching_style}」组织课堂。
-3. 学情自适应：目标学生群体为「{student_level}」，在难点突破、教师话术、课堂活动和作业设计中体现针对性。
-4. 生成深度：输出深度为「{generation_depth}」。
-5. 风格控制：本次生成风格为「{creative}」。
+1. 课型适配：本次课型为【{class_type}】，内容必须符合该课型典型特征。
+2. 教学法/风格：采用【{teaching_style}】组织课堂。
+3. 学情自适应：目标学生群体为【{student_level}】，在难点突破、教师话术、课堂活动和作业设计中体现针对性。
+4. 生成深度：输出深度为【{generation_depth}】。
+5. 风格控制：本次生成风格为【{creative}】。
 6. 模板优先：不要新增模板字段之外的 Key；不要遗漏给定字段；不要输出模板占位符。
-
 {anti_repetition_block}
 {few_shot_block}
 {context_block}
@@ -360,7 +359,7 @@ def draft_lesson_fields(
     grade: str,
     title: str,
     material: str,
-    class_hour: str = "1璇炬椂",
+    class_hour: str = "1课时",
     class_type: str = DEFAULT_CLASS_TYPE,
     teaching_style: str = DEFAULT_TEACHING_STYLE,
     student_level: str = DEFAULT_STUDENT_LEVEL,
@@ -506,7 +505,8 @@ def refine_lesson_field(field: str, value: str, action: str = "more_vivid", inst
 1. 只输出一个 JSON 对象。
 2. JSON key 必须是 "value"。
 3. 不要输出 Markdown，不要解释。
-4. 不要出现模板占位符。"""
+4. 不要出现模板占位符。
+"""
         try:
             data = chat_json(
                 prompt,
@@ -528,22 +528,13 @@ def refine_lesson_field(field: str, value: str, action: str = "more_vivid", inst
         return f"{text}\n\n板书优化：保留主线、关键词和层级关系，减少长句，方便课堂即时呈现。"
 
     if action == "simplify":
-        return (
-            f"{text}\n\n"
-            "基础班优化：将关键任务拆成“教师示范、同伴互助、独立完成”三步，并补充即时反馈。"
-        )
+        return f"{text}\n\n基础班优化：将关键任务拆成“教师示范、同伴互助、独立完成”三步，并补充即时反馈。"
 
     if action == "deepen_inquiry":
-        return (
-            f"{text}\n\n"
-            "探究深化：增加一个需要学生提出假设、寻找证据并进行迁移应用的问题。"
-        )
+        return f"{text}\n\n探究深化：增加一个需要学生提出假设、寻找证据并进行迁移应用的问题。"
 
     if action == "more_interaction":
-        return (
-            f"{text}\n\n"
-            "互动增强：加入同伴互评、小组展示或出口卡，让学生用证据说明自己的理解。"
-        )
+        return f"{text}\n\n互动增强：加入同伴互评、小组展示或出口卡，让学生用证据说明自己的理解。"
 
     extra = f"特别要求：{custom}" if custom else "加入更具体的课堂情境、教师话术和学生可观察活动。"
     return f"{text}\n\n{label}优化：{extra}"

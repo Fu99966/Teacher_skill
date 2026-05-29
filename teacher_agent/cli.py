@@ -21,6 +21,12 @@ from .sample_template import create_sample_template
 from .template_parser import analyze_template
 
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
+
 def _read_text(path: str | Path) -> str:
     try:
         return Path(path).read_text(encoding="utf-8")

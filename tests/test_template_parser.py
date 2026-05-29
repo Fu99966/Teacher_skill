@@ -70,3 +70,17 @@ def test_no_fields_returns_clear_error(tmp_path):
 
     assert analysis["needs_template_markers"] is True
     assert analysis["errors"]
+
+
+def test_header_table_label_is_detected(tmp_path):
+    path = tmp_path / "header-table.docx"
+    document = Document()
+    table = document.sections[0].header.add_table(rows=1, cols=2, width=1000000)
+    table.cell(0, 0).text = "课题"
+    table.cell(0, 1).text = ""
+    document.save(path)
+
+    analysis = analyze_template(path)
+
+    assert analysis["mapped_fields"] == ["lesson_title"]
+    assert analysis["table_mappings"]["lesson_title"]["location"] == "header_table"

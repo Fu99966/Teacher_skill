@@ -46,7 +46,7 @@ def find_placeholders_in_text(text: str) -> list[str]:
 
 def _normalize_label(text: str) -> str:
     text = PLACEHOLDER_PATTERN.sub("", text or "")
-    text = re.sub(r"[\s:：；;，,。\.、\-\—_（）()【】\[\]<>《》]+", "", text)
+    text = re.sub(r"[\s:：；;、，,。.·\-—–（）()\[\]【】<>《》]+", "", text)
     return text.strip()
 
 
@@ -169,6 +169,74 @@ def _scan_placeholders(document: Document) -> tuple[list[str], dict[str, list[di
     return placeholders, occurrences
 
 
+def _scan_table_labels(
+    table,
+    *,
+    table_index: int,
+    location: str,
+    section: int | None,
+    mapped_fields: list[str],
+    field_context: dict[str, list[dict[str, Any]]],
+    table_mappings: dict[str, dict[str, Any]],
+) -> list[list[str]]:
+    rows: list[list[str]] = []
+    seen_cells: set[int] = set()
+    for row_index, row in enumerate(table.rows):
+        row_texts = [_cell_text(cell) for cell in row.cells]
+        rows.append(row_texts)
+        for cell_index, cell in enumerate(row.cells):
+            cell_id = id(cell._tc)
+            if cell_id in seen_cells:
+                continue
+            seen_cells.add(cell_id)
+
+            text = row_texts[cell_index]
+            for field in find_placeholders_in_text(text):
+                _add_ordered(mapped_fields, field)
+                field_context.setdefault(field, []).append(
+                    {
+                        "source": "placeholder",
+                        "location": location,
+                        "section": section,
+                        "table": table_index,
+                        "row": row_index,
+                        "col": cell_index,
+                        "text": text,
+                    }
+                )
+
+            field = _match_field(text)
+            if not field or field in table_mappings:
+                continue
+
+            target_col, mapping_type = _choose_table_target(row_texts, cell_index)
+            table_mappings[field] = {
+                "type": mapping_type,
+                "location": location,
+                "section": section,
+                "table": table_index,
+                "row": row_index,
+                "col": target_col,
+                "label": text,
+                "target_text": row_texts[target_col] if target_col < len(row_texts) else "",
+            }
+            _add_ordered(mapped_fields, field)
+            field_context.setdefault(field, []).append(
+                {
+                        "source": "table_label",
+                        "location": location,
+                        "section": section,
+                        "table": table_index,
+                        "row": row_index,
+                        "label_col": cell_index,
+                    "target_col": target_col,
+                    "label": text,
+                    "row_text": " | ".join(item for item in row_texts if item),
+                }
+            )
+    return rows
+
+
 def analyze_template(path: str | Path) -> dict[str, Any]:
     """Return a serializable report describing fillable fields in a Word template."""
     document = Document(str(path))
@@ -181,64 +249,47 @@ def analyze_template(path: str | Path) -> dict[str, Any]:
         _add_ordered(mapped_fields, field)
 
     for table_index, table in enumerate(document.tables):
-        rows: list[list[str]] = []
-        seen_cells: set[int] = set()
-        for row_index, row in enumerate(table.rows):
-            row_texts = [_cell_text(cell) for cell in row.cells]
-            rows.append(row_texts)
-            for cell_index, cell in enumerate(row.cells):
-                cell_id = id(cell._tc)
-                if cell_id in seen_cells:
-                    continue
-                seen_cells.add(cell_id)
-
-                text = row_texts[cell_index]
-                for field in find_placeholders_in_text(text):
-                    _add_ordered(mapped_fields, field)
-                    field_context.setdefault(field, []).append(
-                        {
-                            "source": "placeholder",
-                            "location": "table",
-                            "table": table_index,
-                            "row": row_index,
-                            "col": cell_index,
-                            "text": text,
-                        }
-                    )
-
-                field = _match_field(text)
-                if not field or field in table_mappings:
-                    continue
-
-                target_col, mapping_type = _choose_table_target(row_texts, cell_index)
-                table_mappings[field] = {
-                    "type": mapping_type,
-                    "table": table_index,
-                    "row": row_index,
-                    "col": target_col,
-                    "label": text,
-                    "target_text": row_texts[target_col] if target_col < len(row_texts) else "",
-                }
-                _add_ordered(mapped_fields, field)
-                field_context.setdefault(field, []).append(
-                    {
-                        "source": "table_label",
-                        "location": "table",
-                        "table": table_index,
-                        "row": row_index,
-                        "label_col": cell_index,
-                        "target_col": target_col,
-                        "label": text,
-                        "row_text": " | ".join(item for item in row_texts if item),
-                    }
-                )
+        rows = _scan_table_labels(
+            table,
+            table_index=table_index,
+            location="body_table",
+            section=None,
+            mapped_fields=mapped_fields,
+            field_context=field_context,
+            table_mappings=table_mappings,
+        )
         tables.append({"index": table_index, "rows": rows})
+
+    for section_index, section in enumerate(document.sections):
+        for table_index, table in enumerate(section.header.tables):
+            rows = _scan_table_labels(
+                table,
+                table_index=table_index,
+                location="header_table",
+                section=section_index,
+                mapped_fields=mapped_fields,
+                field_context=field_context,
+                table_mappings=table_mappings,
+            )
+            tables.append({"index": table_index, "section": section_index, "location": "header_table", "rows": rows})
+
+        for table_index, table in enumerate(section.footer.tables):
+            rows = _scan_table_labels(
+                table,
+                table_index=table_index,
+                location="footer_table",
+                section=section_index,
+                mapped_fields=mapped_fields,
+                field_context=field_context,
+                table_mappings=table_mappings,
+            )
+            tables.append({"index": table_index, "section": section_index, "location": "footer_table", "rows": rows})
 
     errors: list[str] = []
     warnings: list[str] = []
     if not mapped_fields:
         errors.append(
-            "未识别到可填字段。请在模板中加入 {{field_name}} 占位符，或使用可识别的表格标签，如“教学目标”“教学过程”“作业设计”。"
+            "未识别到可填写字段。请在模板中加入 {{field_name}} 占位符，或使用可识别的表格标签，例如“教学目标”“教学过程”“作业设计”。"
         )
     if placeholders and table_mappings:
         warnings.append("模板同时包含占位符和表格标签，系统会按模板出现顺序填充两类字段。")
