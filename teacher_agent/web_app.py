@@ -286,6 +286,31 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
 
+        if parsed.path == "/api/step1-diagnose":
+            try:
+                self._handle_step1_diagnose()
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        if parsed.path == "/api/step2-generate":
+            try:
+                self._handle_step2_generate()
+            except DeepSeekError as exc:
+                self._send(*_json_bytes({"error": exc.user_message, "llm_error": exc.to_dict()}, HTTPStatus.BAD_GATEWAY))
+            except LessonGenerationError as exc:
+                self._send(*_json_bytes({"error": str(exc), "llm_error": {"message": str(exc), "type": "generation_error"}}, HTTPStatus.BAD_GATEWAY))
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        if parsed.path == "/api/step4-fill":
+            try:
+                self._handle_step4_fill()
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
         if parsed.path != "/api/generate":
             self._send(*_json_bytes({"error": "接口不存在"}, HTTPStatus.NOT_FOUND))
             return
@@ -303,6 +328,67 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             )
         except Exception as exc:
             self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+
+    def _handle_step1_diagnose(self) -> None:
+        """Step 1: upload template, return template analysis."""
+        form = self._read_multipart_form()
+        template_path = self._save_template(form)
+        analysis = analyze_template(template_path)
+        self._send(*_json_bytes({"analysis": analysis, "template_path": str(template_path)}))
+
+    def _handle_step2_generate(self) -> None:
+        """Step 2: generate lesson fields from course info + template."""
+        from .lesson_generator import draft_lesson_document_fields_with_source
+        form = self._read_multipart_form()
+        template_path = self._save_template(form)
+        subject = _form_value(form, "subject", "")
+        grade = _form_value(form, "grade", "")
+        title = _form_value(form, "title", "")
+        class_hour = _form_value(form, "class_hour", "1课时")
+        material = _form_value(form, "material", "")
+        class_type = _form_value(form, "class_type", DEFAULT_CLASS_TYPE)
+        teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
+        strict_ai = _form_bool(form, "strict_ai", False)
+        template_analysis = analyze_template(template_path)
+        template_fields = template_analysis.get("mapped_fields") or None
+        fields, backend = draft_lesson_document_fields_with_source(
+            subject, grade, title, material, class_hour,
+            class_type, teaching_style, DEFAULT_STUDENT_LEVEL, DEFAULT_GENERATION_DEPTH,
+            template_fields, strict_ai, template_analysis.get("field_context"),
+        )
+        self._send(*_json_bytes({
+            "fields": fields,
+            "generation_backend": backend,
+            "template_analysis": template_analysis,
+            "template_fields": template_fields,
+            "template_id": _template_id_for(template_path),
+        }))
+
+    def _handle_step4_fill(self) -> None:
+        """Step 4: fill template with provided fields JSON and return download URL."""
+        import json as _json
+        from .docx_filler import fill_docx_template
+        form = self._read_multipart_form()
+        template_path = self._save_template(form)
+        fields_json = _form_value(form, "fields_json", "{}")
+        fields = _json.loads(fields_json)
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("fields_json 格式错误或为空")
+        template_analysis = analyze_template(template_path)
+        grade = str(fields.get("grade") or fields.get("class_name") or "年级")
+        subject = str(fields.get("subject") or "学科")
+        title = str(fields.get("lesson_title") or "教案")
+        safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")
+        output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
+        output_path = OUTPUT_DIR / output_name
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        fill_report = fill_docx_template(template_path, fields, output_path)
+        self._send(*_json_bytes({
+            "fill_report": fill_report.to_dict(),
+            "download_url": f"/download/{quote(output_name)}",
+            "output_name": output_name,
+            "template_analysis": template_analysis,
+        }))
 
     def _read_multipart_form(self) -> cgi.FieldStorage:
         content_type = self.headers.get("Content-Type", "")

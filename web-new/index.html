@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>教案助手 Teacher Skill</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #1a1a2e; line-height: 1.6; min-height: 100vh; }
+.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 1.3rem; font-weight: 700; }
+.header .badge { background: rgba(255,255,255,.2); padding: 4px 14px; border-radius: 20px; font-size: .8rem; }
+.main { max-width: 800px; margin: 0 auto; padding: 32px 16px; }
+.steps { display: flex; gap: 8px; margin-bottom: 32px; }
+.step-dot { flex: 1; height: 4px; border-radius: 2px; background: #d0d5dd; transition: background .3s; }
+.step-dot.active { background: #667eea; }
+.step-dot.done { background: #4caf50; }
+.step-indicator { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: .75rem; color: #9ca3af; }
+.step-indicator span.active { color: #667eea; font-weight: 700; }
+.step-indicator span.done { color: #4caf50; }
+.card { background: #fff; border-radius: 12px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 24px; }
+.card h2 { font-size: 1.25rem; margin-bottom: 6px; color: #1a1a2e; }
+.card .subtitle { color: #6b7280; font-size: .9rem; margin-bottom: 24px; }
+.file-drop { border: 2px dashed #d0d5dd; border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
+.file-drop:hover, .file-drop.dragover { border-color: #667eea; background: #f5f3ff; }
+.file-drop .icon { font-size: 2.5rem; margin-bottom: 8px; }
+.file-drop .label { font-weight: 600; color: #374151; }
+.file-drop .hint { font-size: .8rem; color: #9ca3af; margin-top: 4px; }
+.file-drop input { display: none; }
+.file-loaded { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f0fdf4; border-radius: 8px; border: 1px solid #bbf7d0; }
+.file-loaded .icon { font-size: 1.5rem; }
+.file-loaded .name { font-weight: 600; color: #166534; flex: 1; }
+.file-loaded button { background: none; border: none; color: #ef4444; cursor: pointer; font-size: .85rem; }
+.diagnose-result { margin-top: 16px; }
+.field-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.field-badge { font-size: .78rem; padding: 3px 10px; border-radius: 20px; background: #eef2ff; color: #4f46e5; }
+.summary-stats { display: flex; gap: 24px; margin-top: 12px; font-size: .85rem; }
+.summary-stats div { display: flex; align-items: center; gap: 4px; }
+.summary-stats strong { color: #667eea; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; }
+.form-grid span { font-size: .8rem; color: #6b7280; font-weight: 600; }
+input, select, textarea { padding: 10px 12px; border: 1px solid #d0d5dd; border-radius: 8px; font-size: .9rem; font-family: inherit; transition: border-color .2s; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,.15); }
+textarea { resize: vertical; min-height: 80px; }
+.full-width { grid-column: 1 / -1; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 24px; border-radius: 8px; font-size: .9rem; font-weight: 600; cursor: pointer; border: none; transition: all .2s; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: #667eea; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #5a6fd6; }
+.btn-secondary { background: #f3f4f6; color: #374151; }
+.btn-secondary:hover:not(:disabled) { background: #e5e7eb; }
+.btn-success { background: #10b981; color: #fff; }
+.btn-success:hover:not(:disabled) { background: #059669; }
+.actions { display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end; }
+.field-list { max-height: 60vh; overflow-y: auto; }
+.field-item { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #f3f4f6; }
+.field-item:last-child { border-bottom: none; }
+.field-item label { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.field-item .field-key { font-weight: 700; font-size: .8rem; color: #667eea; background: #eef2ff; padding: 2px 8px; border-radius: 4px; }
+.field-item .field-label { font-weight: 600; color: #374151; }
+.field-item textarea { width: 100%; min-height: 60px; }
+.char-count { text-align: right; font-size: .75rem; color: #9ca3af; }
+.preview-group { margin-bottom: 20px; }
+.preview-group h3 { font-size: .9rem; color: #667eea; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #e5e7eb; }
+.download-card { text-align: center; padding: 40px; }
+.download-card .checks { text-align: left; display: inline-block; margin: 16px auto; }
+.download-card .checks li { font-size: .85rem; padding: 4px 0; }
+.download-card .checks .pass { color: #10b981; }
+.download-card .checks .fail { color: #ef4444; }
+.toast { position: fixed; top: 16px; right: 16px; padding: 12px 20px; border-radius: 8px; color: #fff; font-weight: 600; z-index: 1000; animation: slideIn .3s; }
+.toast.error { background: #ef4444; }
+.toast.success { background: #10b981; }
+.toast.info { background: #3b82f6; }
+@keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.hidden { display: none !important; }
+.text-sm { font-size: .85rem; color: #6b7280; }
+.text-center { text-align: center; }
+.mt-2 { margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📝 教案助手 Teacher Skill</h1>
+  <div class="badge" id="llm-status">检查中</div>
+</div>
+
+<div class="main">
+  <div class="step-indicator">
+    <span id="si1" class="active">1. 上传诊断</span>
+    <span id="si2">2. 生成内容</span>
+    <span id="si3">3. 预览编辑</span>
+    <span id="si4">4. 导出Word</span>
+  </div>
+  <div class="steps">
+    <div class="step-dot active" id="sd1"></div>
+    <div class="step-dot" id="sd2"></div>
+    <div class="step-dot" id="sd3"></div>
+    <div class="step-dot" id="sd4"></div>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="card" id="step1">
+    <h2>第 1 步：上传教案模板并诊断</h2>
+    <p class="subtitle">上传学校的 Word 教案模板，系统会自动识别所有可填写字段。</p>
+    <div class="file-drop" id="file-drop">
+      <div class="icon">📄</div>
+      <div class="label">点击或拖拽上传 .docx 模板</div>
+      <div class="hint">支持 {{占位符}} 和表格标签两种模板格式</div>
+      <input type="file" id="template-file" accept=".docx" />
+    </div>
+    <div id="file-info" class="hidden"></div>
+    <div id="diagnose-result" class="diagnose-result hidden">
+      <h3 style="font-size:.9rem; margin-bottom:8px; color:#10b981;">✅ 模板诊断完成</h3>
+      <div class="summary-stats">
+        <div>识别字段：<strong id="field-count">0</strong> 个</div>
+        <div>类型：<strong id="template-type">-</strong></div>
+        <div>表格：<strong id="table-count">0</strong> 张</div>
+      </div>
+      <div class="field-badges" id="field-badges"></div>
+    </div>
+    <div id="diagnose-error" class="hidden" style="margin-top:12px; padding:12px; background:#fef2f2; border-radius:8px; color:#dc2626;"></div>
+    <div class="actions">
+      <button class="btn btn-primary" id="btn-step1-next" disabled>下一步：填写课程信息 →</button>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="card hidden" id="step2">
+    <h2>第 2 步：填写课程信息并 AI 生成</h2>
+    <p class="subtitle">系统会根据模板字段 + 课程信息，自动生成教案内容。</p>
+    <div class="form-grid">
+      <label><span>学科 *</span><input id="f-subject" value="物联网" /></label>
+      <label><span>年级/班级 *</span><input id="f-grade" value="24物联网1班" /></label>
+      <label><span>课题 *</span><input id="f-title" value="传感器基础" /></label>
+      <label><span>课时</span><input id="f-class-hour" value="2课时" /></label>
+      <label><span>课型</span>
+        <select id="f-class-type"><option value="新授课">新授课</option><option value="复习课">复习课</option><option value="探究/实验课">探究/实验课</option><option value="讲评课">讲评课</option><option value="活动课">活动课</option></select></label>
+      <label><span>教学法</span>
+        <select id="f-teaching-style"><option value="常规启发式">常规启发式</option><option value="BOPPPS参与式教学">BOPPPS 参与式</option><option value="5E探究模型">5E 探究模型</option><option value="项目驱动(PBL)">项目驱动 PBL</option></select></label>
+      <label class="full-width"><span>教材内容 / 补充资料（可选）</span>
+        <textarea id="f-material" rows="5" placeholder="粘贴教材内容、知识点……不填也可以生成通用版"></textarea></label>
+    </div>
+    <div class="actions">
+      <button class="btn btn-secondary" id="btn-step2-back">← 返回上一步</button>
+      <button class="btn btn-primary" id="btn-step2-generate">🤖 AI 生成教案内容</button>
+    </div>
+    <div id="gen-status" class="hidden text-center mt-2" style="padding:12px; background:#eef2ff; border-radius:8px; color:#4f46e5;"></div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="card hidden" id="step3">
+    <h2>第 3 步：预览和编辑教案内容</h2>
+    <p class="subtitle">检查每个字段的内容，需要修改的直接在文本框里编辑。所有修改都会写入 Word。</p>
+    <div id="field-editor" class="field-list"></div>
+    <div class="actions">
+      <button class="btn btn-secondary" id="btn-step3-back">← 返回修改信息</button>
+      <button class="btn btn-primary" id="btn-step3-write">📝 确认无误，写入 Word</button>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="card hidden" id="step4">
+    <h2>第 4 步：写入 Word 并下载</h2>
+    <p class="subtitle">正在将你确认的内容填入 Word 模板……</p>
+    <div class="download-card">
+      <div id="fill-report"></div>
+      <div id="fill-error" class="hidden" style="padding:12px; background:#fef2f2; border-radius:8px; color:#dc2626; margin:12px 0;"></div>
+      <div id="download-actions" class="actions hidden" style="justify-content:center;">
+        <a class="btn btn-success" id="download-link" href="#" download>⬇ 下载 Word 教案</a>
+        <button class="btn btn-secondary" id="btn-step4-redo">返回编辑</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let state = { step: 1, templateFile: null, templateAnalysis: null, fields: {}, downloadUrl: '' };
+
+function toast(msg, type) {
+  var el = document.createElement('div');
+  el.className = 'toast ' + (type||'info');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(function(){ el.remove(); }, 3000);
+}
+
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); }
+
+function goStep(n) {
+  state.step = n;
+  for (var i=1;i<=4;i++) { document.getElementById('step'+i).classList.toggle('hidden', i!==n); }
+  ['si1','si2','si3','si4'].forEach(function(id,i){ var el=document.getElementById(id); el.classList.remove('active','done'); if(i+1===n)el.classList.add('active'); if(i+1<n)el.classList.add('done');});
+  ['sd1','sd2','sd3','sd4'].forEach(function(id,i){ var el=document.getElementById(id); el.classList.remove('active','done'); if(i+1===n)el.classList.add('active'); if(i+1<n)el.classList.add('done');});
+}
+
+async function apiPost(url, formData) {
+  var r = await fetch(url, {method:'POST', body:formData});
+  if (!r.ok) { var t = await r.text(); try{var j=JSON.parse(t);throw new Error(j.error||j.message||'Server error');}catch(e){if(e.message&&e.message!=='Server error')throw e;throw new Error(t||r.statusText);} }
+  return r.json();
+}
+
+// ── Step 1 ──
+var fileDrop = document.getElementById('file-drop');
+var tf = document.getElementById('template-file');
+fileDrop.addEventListener('click',function(){tf.click();});
+fileDrop.addEventListener('dragover',function(e){e.preventDefault();fileDrop.classList.add('dragover');});
+fileDrop.addEventListener('dragleave',function(){fileDrop.classList.remove('dragover');});
+fileDrop.addEventListener('drop',function(e){e.preventDefault();fileDrop.classList.remove('dragover');var f=e.dataTransfer.files[0];if(f&&f.name.endsWith('.docx')){state.templateFile=f;handleFile(f);}});
+tf.addEventListener('change',function(e){var f=e.target.files[0];if(f){state.templateFile=f;handleFile(f);}});
+
+function handleFile(file) {
+  hide('file-drop'); show('file-info');
+  document.getElementById('file-info').innerHTML='<div class="file-loaded"><span class="icon">📄</span><span class="name">'+file.name+'</span><button onclick="resetFile()">✕ 重选</button></div>';
+  runDiagnose(file);
+}
+
+function resetFile() {
+  state.templateFile=null; state.templateAnalysis=null;
+  show('file-drop'); hide('file-info'); hide('diagnose-result'); hide('diagnose-error');
+  document.getElementById('btn-step1-next').disabled=true; tf.value='';
+}
+
+async function runDiagnose(file) {
+  var btn = document.getElementById('btn-step1-next'); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> 分析中...';
+  try {
+    var fd=new FormData(); fd.append('template',file);
+    var data = await apiPost('/api/step1-diagnose', fd);
+    state.templateAnalysis = data.analysis;
+    show('diagnose-result'); hide('diagnose-error');
+    document.getElementById('field-count').textContent=data.analysis.fillable_count;
+    document.getElementById('template-type').textContent=data.analysis.mode==='placeholder'?'占位符模板':'表格标签模板';
+    document.getElementById('table-count').textContent=data.analysis.table_count;
+    var badges=document.getElementById('field-badges');
+    badges.innerHTML=(data.analysis.mapped_fields||[]).map(function(f){return '<span class="field-badge">'+f+'</span>';}).join('');
+    btn.disabled=false; btn.innerHTML='下一步：填写课程信息 →';
+    toast('识别到 '+data.analysis.fillable_count+' 个可填字段','success');
+  }catch(e){
+    show('diagnose-error'); document.getElementById('diagnose-error').textContent='诊断失败：'+e.message;
+    btn.disabled=true; toast('诊断失败','error');
+  }
+}
+
+document.getElementById('btn-step1-next').addEventListener('click',function(){
+  if(!state.templateAnalysis) return toast('请先上传模板','error');
+  goStep(2);
+  hide('gen-status');
+  document.getElementById('gen-status').textContent='将根据 '+(state.templateAnalysis.mapped_fields||[]).length+' 个字段生成内容';
+});
+
+// ── Step 2 ──
+document.getElementById('btn-step2-back').addEventListener('click',function(){goStep(1);});
+document.getElementById('btn-step2-generate').addEventListener('click',async function(){
+  var btn=this; btn.disabled=true; btn.innerHTML='<span class="spinner"></span> 生成中……';
+  show('gen-status'); document.getElementById('gen-status').textContent='正在调用 AI 生成教案内容……';
+  try {
+    var fd=new FormData();
+    fd.append('template',state.templateFile);
+    fd.append('subject',document.getElementById('f-subject').value);
+    fd.append('grade',document.getElementById('f-grade').value);
+    fd.append('title',document.getElementById('f-title').value);
+    fd.append('class_hour',document.getElementById('f-class-hour').value);
+    fd.append('class_type',document.getElementById('f-class-type').value);
+    fd.append('teaching_style',document.getElementById('f-teaching-style').value);
+    fd.append('material',document.getElementById('f-material').value);
+    fd.append('strict_ai','0');
+    var data=await apiPost('/api/step2-generate',fd);
+    state.fields=data.fields;
+    state.templateAnalysis=data.template_analysis||state.templateAnalysis;
+    document.getElementById('gen-status').innerHTML='✅ 生成完成！共 '+Object.keys(data.fields).length+' 个字段，可通过第3步预览编辑。';
+    toast('AI 生成完成','success');
+    renderEditor();
+    goStep(3);
+  }catch(e){
+    document.getElementById('gen-status').innerHTML='❌ '+e.message;
+    toast('生成失败：'+e.message,'error');
+  }
+  btn.disabled=false; btn.innerHTML='🤖 AI 生成教案内容';
+});
+
+// ── Step 3 ──
+var fieldLabelMap = {
+  lesson_title:'课题',teaching_date:'授课日期',class_name:'班级',class_type:'授课类型',class_hour:'课时',
+  teaching_goals:'教学目的',teaching_key_difficult:'重点难点',teaching_environment:'教学环境',teaching_aids:'教具挂图',
+  teaching_process:'主要教学内容',teaching_method:'教学方法的运用',homework:'作业',reflection:'课后小记'
+};
+
+function renderEditor() {
+  var editor=document.getElementById('field-editor');
+  var fields=state.fields, keys=Object.keys(fields);
+  var info=['teaching_date','class_name','lesson_title','class_type','class_hour','teaching_environment','teaching_aids'];
+  var main=['teaching_goals','teaching_key_difficult','teaching_process','teaching_method','homework','reflection'];
+  var other=keys.filter(function(k){return info.indexOf(k)<0&&main.indexOf(k)<0;});
+
+  function field(k){
+    var v=fields[k]||'', label=fieldLabelMap[k]||k.replace(/_/g,' ');
+    return '<div class="field-item"><label><span class="field-key">'+k+'</span><span class="field-label">'+label+'</span></label><textarea data-key="'+k+'" rows="3">'+escapeHtml(v)+'</textarea><div class="char-count">'+v.length+' 字</div></div>';
+  }
+
+  var html='';
+  html+='<div class="preview-group"><h3>📋 基本信息</h3>'; info.forEach(function(k){if(fields.hasOwnProperty(k))html+=field(k);}); html+='</div>';
+  html+='<div class="preview-group"><h3>📖 教学内容</h3>'; main.forEach(function(k){if(fields.hasOwnProperty(k))html+=field(k);}); html+='</div>';
+  if(other.length){html+='<div class="preview-group"><h3>🔧 其他</h3>'; other.forEach(function(k){html+=field(k);}); html+='</div>';}
+  editor.innerHTML=html;
+  editor.querySelectorAll('textarea').forEach(function(ta){ta.addEventListener('input',function(){state.fields[ta.dataset.key]=ta.value;var cc=ta.parentElement.querySelector('.char-count');if(cc)cc.textContent=ta.value.length+' 字';});});
+}
+
+function escapeHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+document.getElementById('btn-step3-back').addEventListener('click',function(){goStep(2);});
+document.getElementById('btn-step3-write').addEventListener('click',async function(){
+  goStep(4);
+  var reportEl=document.getElementById('fill-report');
+  reportEl.innerHTML='<span class="spinner" style="border-color:rgba(0,0,0,.2);border-top-color:#667eea;"></span> 正在写入 Word……';
+  try {
+    var fd=new FormData(); fd.append('template',state.templateFile); fd.append('fields_json',JSON.stringify(state.fields));
+    var data=await apiPost('/api/step4-fill',fd);
+    var fr=data.fill_report||{}, filled=fr.filled_fields||[], errors=fr.errors||[], wc=fr.table_write_count||0, ne=fr.filled_non_empty_count||0;
+    state.downloadUrl=data.download_url;
+    if(errors.length){show('fill-error');document.getElementById('fill-error').textContent='⚠️ '+errors.join('; ');}
+    else{hide('fill-error');}
+    var checkHtml='<p style="font-size:1.2rem;color:#10b981;margin-bottom:8px;">✅ 写入成功！</p>';
+    checkHtml+='<ul class="checks">';
+    checkHtml+='<li class="pass">✓ 已填充字段：'+ne+' 个（共写入 '+wc+' 个表格位置）</li>';
+    checkHtml+='<li class="'+(errors.length?'fail':'pass')+'">'+(errors.length?'✗ 有问题：'+errors.length+' 条':'✓ 填充错误：无')+'</li>';
+    checkHtml+='<li class="pass">✓ 已填字段：'+filled.join('、')+'</li>';
+    checkHtml+='</ul>';
+    reportEl.innerHTML=checkHtml;
+    document.getElementById('download-link').href=data.download_url;
+    show('download-actions');
+    toast('教案已生成！','success');
+  }catch(e){
+    show('fill-error'); document.getElementById('fill-error').textContent='❌ 写入失败：'+e.message;
+    reportEl.innerHTML='<p style="color:#ef4444;">写入 Word 时发生错误，请返回第3步检查内容后重试。</p>';
+    toast('写入失败','error');
+  }
+});
+document.getElementById('btn-step4-redo').addEventListener('click',function(){goStep(3);});
+
+fetch('/api/llm-health').then(function(r){return r.json();}).then(function(d){document.getElementById('llm-status').textContent=(d.llm||{}).status==='ok'?'AI 就绪':'AI 未配置';}).catch(function(){document.getElementById('llm-status').textContent='离线';});
+</script>
+</body>
+</html>
