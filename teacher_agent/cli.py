@@ -67,7 +67,10 @@ def cmd_scan_template(args: argparse.Namespace) -> None:
 def cmd_fill_template(args: argparse.Namespace) -> None:
     data = _load_json(args.data)
     report = fill_docx_template(args.template, data, args.output)
-    _print_json({"output": str(report.path), "fill_report": report.to_dict()})
+    payload = {"success": not report.errors, "output": str(report.path), "fill_report": report.to_dict()}
+    _print_json(payload)
+    if report.errors:
+        raise ValueError("; ".join(report.errors))
 
 
 def cmd_draft_lesson(args: argparse.Namespace) -> None:
@@ -116,15 +119,17 @@ def cmd_generate(args: argparse.Namespace) -> None:
         (template_analysis or {}).get("field_context"),
     )
     report = fill_docx_template(args.template, fields, args.output)
-    _print_json(
-        {
-            "output": str(report.path),
-            "generation_backend": backend,
-            "template_fields": template_fields,
-            "fields": fields,
-            "fill_report": report.to_dict(),
-        }
-    )
+    payload = {
+        "success": not report.errors,
+        "output": str(report.path),
+        "generation_backend": backend,
+        "template_fields": template_fields,
+        "fields": fields,
+        "fill_report": report.to_dict(),
+    }
+    _print_json(payload)
+    if report.errors:
+        raise ValueError("; ".join(report.errors))
 
 
 def cmd_prompt(args: argparse.Namespace) -> None:

@@ -15,9 +15,15 @@ class FillReport:
     output_path: str
     filled_fields: list[str] = field(default_factory=list)
     missing_fields: list[str] = field(default_factory=list)
+    empty_fields: list[str] = field(default_factory=list)
+    skipped_empty_fields: list[str] = field(default_factory=list)
+    unfilled_template_fields: list[str] = field(default_factory=list)
+    filled_non_empty_count: int = 0
     remaining_placeholders: list[str] = field(default_factory=list)
     placeholder_fields_filled: list[str] = field(default_factory=list)
     table_fields_filled: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     @property
     def path(self) -> Path:
@@ -45,6 +51,10 @@ def _docx_text(value: Any) -> str:
     return str(value)
 
 
+def _is_effectively_empty(value: Any) -> bool:
+    return not _docx_text(value).strip()
+
+
 def _add_ordered(target: list[str], field_name: str) -> None:
     if field_name and field_name not in target:
         target.append(field_name)
@@ -59,6 +69,10 @@ def _replace_placeholders_in_run(run, data: dict[str, Any], report: FillReport) 
         key = match.group(1).strip()
         if key not in data:
             _add_ordered(report.missing_fields, key)
+            return match.group(0)
+        if _is_effectively_empty(data[key]):
+            _add_ordered(report.empty_fields, key)
+            _add_ordered(report.skipped_empty_fields, key)
             return match.group(0)
         changed = True
         _add_ordered(report.filled_fields, key)
@@ -85,6 +99,10 @@ def _replace_cross_run_placeholder(paragraph, match, data: dict[str, Any], repor
     key = match.group(1).strip()
     if key not in data:
         _add_ordered(report.missing_fields, key)
+        return False
+    if _is_effectively_empty(data[key]):
+        _add_ordered(report.empty_fields, key)
+        _add_ordered(report.skipped_empty_fields, key)
         return False
 
     ranges = _run_ranges(paragraph)
@@ -225,6 +243,10 @@ def _fill_table_mappings(document: Document, data: dict[str, Any], mappings: dic
         if field_name not in data:
             _add_ordered(report.missing_fields, field_name)
             continue
+        if _is_effectively_empty(data[field_name]):
+            _add_ordered(report.empty_fields, field_name)
+            _add_ordered(report.skipped_empty_fields, field_name)
+            continue
 
         mapping_type = target.get("type")
         if mapping_type not in {"table_cell", "table_cell_append"}:
@@ -278,7 +300,18 @@ def fill_docx_template(template_path: str | Path, data: dict[str, Any], output_p
     for field_name in analysis.get("mapped_fields", []):
         if field_name not in data:
             _add_ordered(report.missing_fields, field_name)
+        elif _is_effectively_empty(data[field_name]):
+            _add_ordered(report.empty_fields, field_name)
+            _add_ordered(report.skipped_empty_fields, field_name)
+        if field_name not in report.filled_fields:
+            _add_ordered(report.unfilled_template_fields, field_name)
 
     report.remaining_placeholders = _remaining_placeholders(document)
+    report.filled_non_empty_count = len(report.filled_fields)
+    template_field_count = len(analysis.get("mapped_fields", []))
+    if template_field_count > 0 and report.filled_non_empty_count == 0:
+        report.errors.append("生成失败：检测到输出可能为空白模板，未写入任何非空字段。")
+    elif template_field_count > 0 and report.filled_non_empty_count < template_field_count * 0.5:
+        report.warnings.append("警告：本次只填入少量模板字段，请检查字段映射和生成结果。")
     document.save(str(output_path))
     return report

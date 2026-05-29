@@ -29,6 +29,46 @@ def _field_text(fields: dict[str, str], *names: str) -> str:
     return ""
 
 
+def _is_non_empty_revision_value(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return bool(str(value).strip())
+
+
+def _revision_text(value) -> str:
+    if isinstance(value, str):
+        return value.replace("{{", "").replace("}}", "").strip()
+    if isinstance(value, (list, tuple)):
+        return "\n".join(_revision_text(item) for item in value if _is_non_empty_revision_value(item)).strip()
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    return str(value).strip()
+
+
+def merge_revision_preserving_original(
+    original: dict[str, str],
+    revised: dict[str, object],
+    allowed_fields: list[str],
+) -> dict[str, str]:
+    allowed = list(dict.fromkeys(str(field) for field in allowed_fields))
+    merged = {field: str(original.get(field) or "") for field in allowed}
+    if not isinstance(revised, dict):
+        return merged
+
+    for field in allowed:
+        if field not in revised:
+            continue
+        value = revised[field]
+        if not _is_non_empty_revision_value(value):
+            continue
+        merged[field] = _revision_text(value)
+    return merged
+
+
 def _local_review(fields: dict[str, str], context: dict) -> ReviewReport:
     process = _field_text(fields, "teaching_process", "process", "教学过程")
     goals = _field_text(fields, "teaching_goals", "goals", "教学目标")
@@ -177,6 +217,6 @@ def revise_lesson_after_review(
             max_tokens=7200,
         )
         report.revision_applied = True
-        return coerce_dynamic_fields(data if isinstance(data, dict) else {}, allowed_fields), "deepseek"
+        return merge_revision_preserving_original(fields, data if isinstance(data, dict) else {}, allowed_fields), "deepseek"
     except Exception:
         return _apply_local_revision(fields, report), "local_fallback"

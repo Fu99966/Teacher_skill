@@ -20,6 +20,7 @@ def test_cli_fill_template_outputs_report(tmp_path, capsys):
     captured = capsys.readouterr().out
 
     assert "fill_report" in captured
+    assert '"success": true' in captured
     assert Document(output).paragraphs[0].text == "桂林山水"
 
 
@@ -54,5 +55,6 @@ def test_cli_generate_uses_fallback_and_fills_word(tmp_path, monkeypatch, capsys
     captured = capsys.readouterr().out
 
     assert '"generation_backend": "local_fallback"' in captured
+    assert '"success": true' in captured
     assert Document(output).paragraphs[0].text == "桂林山水"
     assert Document(output).tables[0].cell(0, 1).text

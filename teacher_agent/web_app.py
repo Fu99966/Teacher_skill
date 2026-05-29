@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .agent_core.executor import AgentExecutor
+from .agent_core.evaluator import evaluate_lesson_output
 from .agent_core.planner import build_plan
 from .agent_core.task_router import route_task
 from .agent_core.tool_registry import build_lesson_tool_registry
@@ -662,6 +663,15 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         template_path = _template_from_id(template_id)
         workflow = TeacherWorkflow()
         result = workflow.export_document(fields, template_path, OUTPUT_DIR, PREVIEW_DIR)
+        output_path = OUTPUT_DIR / str(result.get("output_name") or "")
+        evaluation = evaluate_lesson_output(
+            fields=fields,
+            output_path=output_path,
+            download_url=result.get("download_url"),
+            template_analysis=result.get("template_analysis"),
+            fill_report=result.get("fill_report"),
+        )
+        result["evaluation_report"] = evaluation.to_dict()
 
         prior_trace = payload.get("workflow_trace")
         if isinstance(prior_trace, list):
@@ -692,6 +702,11 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             workflow_trace=result["workflow_trace"],
         )
         result["history_item"] = history_item
+
+        if not evaluation.passed:
+            result["error"] = evaluation.summary
+            self._send(*_json_bytes(result, HTTPStatus.BAD_REQUEST))
+            return
 
         self._send(*_json_bytes(result))
 
@@ -729,6 +744,14 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         workflow = TeacherWorkflow(history_db=HISTORY_DB)
         draft_result = workflow.draft(request, template_path, _template_id_for(template_path), template_analysis)
         export_result = workflow.export_document(draft_result["fields"], template_path, OUTPUT_DIR, PREVIEW_DIR)
+        output_path = OUTPUT_DIR / str(export_result.get("output_name") or "")
+        evaluation = evaluate_lesson_output(
+            fields=draft_result["fields"],
+            output_path=output_path,
+            download_url=export_result.get("download_url"),
+            template_analysis=export_result.get("template_analysis"),
+            fill_report=export_result.get("fill_report"),
+        )
         template_mode = export_result["template_analysis"].get("mode", "unknown")
         export_result["workflow_trace"].append(
             {
@@ -751,22 +774,24 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             workflow_trace=export_result["workflow_trace"],
         )
 
-        self._send(
-            *_json_bytes(
-                {
-                    **draft_result,
-                    "template_fields": template_analysis["mapped_fields"],
-                    "template_analysis": export_result["template_analysis"],
-                    "output_name": export_result["output_name"],
-                    "download_url": export_result["download_url"],
-                    "preview_url": export_result["preview_url"],
-                    "fill_report": export_result.get("fill_report"),
-                    "workflow_trace": export_result["workflow_trace"],
-                    "history_item": history_item,
-                    "llm_status": check_generation_health(probe=False).to_dict(),
-                }
-            )
-        )
+        payload = {
+            **draft_result,
+            "template_fields": template_analysis["mapped_fields"],
+            "template_analysis": export_result["template_analysis"],
+            "output_name": export_result["output_name"],
+            "download_url": export_result["download_url"],
+            "preview_url": export_result["preview_url"],
+            "fill_report": export_result.get("fill_report"),
+            "evaluation_report": evaluation.to_dict(),
+            "workflow_trace": export_result["workflow_trace"],
+            "history_item": history_item,
+            "llm_status": check_generation_health(probe=False).to_dict(),
+        }
+        if not evaluation.passed:
+            payload["error"] = evaluation.summary
+            self._send(*_json_bytes(payload, HTTPStatus.BAD_REQUEST))
+            return
+        self._send(*_json_bytes(payload))
 
     def _save_template(self, form: cgi.FieldStorage, allow_sample: bool = False) -> Path:
         template_item = form["template"] if "template" in form else None

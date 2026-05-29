@@ -33,6 +33,34 @@ def test_replaces_placeholder_template(tmp_path):
     assert report.remaining_placeholders == []
 
 
+def test_empty_string_does_not_clear_placeholder(tmp_path):
+    template = tmp_path / "empty-placeholder.docx"
+    output = tmp_path / "empty-placeholder-out.docx"
+    document = Document()
+    document.add_paragraph("{{lesson_title}}")
+    document.save(template)
+
+    report = fill_docx_template(template, {"lesson_title": ""}, output)
+
+    assert Document(output).paragraphs[0].text == "{{lesson_title}}"
+    assert "lesson_title" not in report.filled_fields
+    assert "lesson_title" in report.empty_fields
+    assert "lesson_title" in report.skipped_empty_fields
+
+
+def test_chinese_placeholder_can_be_filled(tmp_path):
+    template = tmp_path / "chinese-placeholder.docx"
+    output = tmp_path / "chinese-placeholder-out.docx"
+    document = Document()
+    document.add_paragraph("{{教学目标}}")
+    document.save(template)
+
+    report = fill_docx_template(template, {"教学目标": "理解课文内容"}, output)
+
+    assert Document(output).paragraphs[0].text == "理解课文内容"
+    assert report.filled_fields == ["教学目标"]
+
+
 def test_table_label_fills_blank_right_cell(tmp_path):
     template = tmp_path / "table.docx"
     output = tmp_path / "out.docx"
@@ -48,6 +76,39 @@ def test_table_label_fills_blank_right_cell(tmp_path):
     assert result.tables[0].cell(0, 0).text == "教学目标"
     assert result.tables[0].cell(0, 1).text == "目标一\n目标二"
     assert report.table_fields_filled == ["teaching_goals"]
+
+
+def test_empty_string_does_not_clear_table_target(tmp_path):
+    template = tmp_path / "empty-table.docx"
+    output = tmp_path / "empty-table-out.docx"
+    document = Document()
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "教学目标"
+    table.cell(0, 1).text = "请填写教学目标"
+    document.save(template)
+
+    report = fill_docx_template(template, {"teaching_goals": ""}, output)
+    result = Document(output)
+
+    assert result.tables[0].cell(0, 1).text == "请填写教学目标"
+    assert "teaching_goals" not in report.filled_fields
+    assert "teaching_goals" in report.empty_fields
+
+
+def test_unknown_chinese_table_label_can_be_filled(tmp_path):
+    template = tmp_path / "unknown-table.docx"
+    output = tmp_path / "unknown-table-out.docx"
+    document = Document()
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "教学评价"
+    table.cell(0, 1).text = ""
+    document.save(template)
+
+    report = fill_docx_template(template, {"教学评价": "采用课堂观察和任务单评价。"}, output)
+    result = Document(output)
+
+    assert result.tables[0].cell(0, 1).text == "采用课堂观察和任务单评价。"
+    assert "教学评价" in report.table_fields_filled
 
 
 def test_mixed_template_fills_placeholder_and_table(tmp_path):
@@ -95,6 +156,26 @@ def test_missing_field_keeps_placeholder_and_reports(tmp_path):
     assert Document(output).paragraphs[0].text == "{{lesson_title}}"
     assert report.missing_fields == ["lesson_title"]
     assert report.remaining_placeholders == ["lesson_title"]
+
+
+def test_blank_template_risk_is_reported(tmp_path):
+    template = tmp_path / "blank-risk.docx"
+    output = tmp_path / "blank-risk-out.docx"
+    document = Document()
+    document.add_paragraph("{{lesson_title}}")
+    document.add_paragraph("{{teaching_goals}}")
+    document.add_paragraph("{{teaching_process}}")
+    document.save(template)
+
+    report = fill_docx_template(
+        template,
+        {"lesson_title": "", "teaching_goals": "", "teaching_process": ""},
+        output,
+    )
+
+    assert report.filled_non_empty_count == 0
+    assert report.errors
+    assert "空白模板" in report.errors[0]
 
 
 def test_header_table_label_can_be_filled(tmp_path):

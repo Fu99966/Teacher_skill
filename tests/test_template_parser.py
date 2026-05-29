@@ -19,6 +19,17 @@ def test_placeholder_template_fields_are_ordered(tmp_path):
     assert analysis["needs_template_markers"] is False
 
 
+def test_chinese_placeholder_is_preserved_as_dynamic_field(tmp_path):
+    path = tmp_path / "chinese-placeholder.docx"
+    document = Document()
+    document.add_paragraph("{{教学目标}}")
+    document.save(path)
+
+    analysis = analyze_template(path)
+
+    assert analysis["mapped_fields"] == ["教学目标"]
+
+
 def test_table_label_maps_to_blank_right_cell(tmp_path):
     path = tmp_path / "table.docx"
     document = Document()
@@ -31,6 +42,21 @@ def test_table_label_maps_to_blank_right_cell(tmp_path):
 
     assert analysis["mapped_fields"] == ["teaching_goals"]
     assert analysis["table_mappings"]["teaching_goals"]["col"] == 1
+
+
+def test_unknown_chinese_table_label_becomes_dynamic_field(tmp_path):
+    path = tmp_path / "unknown-table.docx"
+    document = Document()
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "教学评价"
+    table.cell(0, 1).text = ""
+    document.save(path)
+
+    analysis = analyze_template(path)
+
+    assert analysis["mapped_fields"] == ["教学评价"]
+    assert analysis["table_mappings"]["教学评价"]["col"] == 1
+    assert analysis["field_context"]["教学评价"][0]["label"] == "教学评价"
 
 
 def test_mixed_template_keeps_placeholders_and_table_fields(tmp_path):

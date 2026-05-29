@@ -107,7 +107,7 @@ def _normalize_dynamic_fields(dynamic_fields: list[str] | None) -> list[str]:
         if not field:
             continue
         field = field.replace("{{", "").replace("}}", "").strip()
-        field = re.sub(r"[^a-zA-Z0-9_\-\.]", "", field)
+        field = re.sub(r"[\r\n\t<>]", "", field).strip()
         if field and field not in result:
             result.append(field)
     return result or list(JSON_FIELD_NAMES)
@@ -131,6 +131,37 @@ def coerce_dynamic_fields(data: dict[str, Any] | dict, dynamic_fields: list[str]
     fields = _normalize_dynamic_fields(dynamic_fields)
     source = data if isinstance(data, dict) else {}
     return {field: _clean_text(source.get(field)) for field in fields}
+
+
+def validate_non_empty_fields(fields: dict[str, Any], required_fields: list[str]) -> tuple[bool, list[str]]:
+    empty_fields = [field for field in _normalize_dynamic_fields(required_fields) if not _clean_text(fields.get(field))]
+    return not empty_fields, empty_fields
+
+
+def backfill_empty_fields_with_local_fallback(
+    fields: dict[str, Any],
+    *,
+    subject: str,
+    grade: str,
+    title: str,
+    material: str,
+    class_hour: str,
+    required_fields: list[str],
+) -> dict[str, str]:
+    normalized_fields = _normalize_dynamic_fields(required_fields)
+    result = coerce_dynamic_fields(fields if isinstance(fields, dict) else {}, normalized_fields)
+    fallback = _local_fallback_fields(
+        subject=subject,
+        grade=grade,
+        title=title,
+        material=material,
+        class_hour=class_hour,
+        dynamic_fields=normalized_fields,
+    )
+    for field in normalized_fields:
+        if not _clean_text(result.get(field)):
+            result[field] = fallback.get(field, "")
+    return result
 
 
 def _field_label_hint(field_name: str) -> str:
@@ -426,6 +457,40 @@ def draft_lesson_fields_with_source(
             anti_repetition_context=anti_repetition_context,
             few_shot_examples=few_shot_examples,
         )
+        ok, empty_fields = validate_non_empty_fields(data, fields)
+        if not ok and strict_ai:
+            retry_context = (anti_repetition_context + "\n\n请特别注意：上一轮生成存在空字段，请务必为所有模板字段生成非空内容。").strip()
+            data = _draft_lesson_fields_ai(
+                subject=subject,
+                grade=grade,
+                title=title,
+                material=material,
+                class_hour=class_hour,
+                class_type=class_type,
+                teaching_style=teaching_style,
+                student_level=student_level,
+                generation_depth=generation_depth,
+                dynamic_fields=fields,
+                strict_ai=strict_ai,
+                template_context=template_context,
+                creative_mode=creative_mode,
+                anti_repetition_context=retry_context,
+                few_shot_examples=few_shot_examples,
+            )
+            ok, empty_fields = validate_non_empty_fields(data, fields)
+            if not ok:
+                raise LessonGenerationError(f"AI 生成结果存在空字段，已重试仍未补齐：{', '.join(empty_fields)}")
+        if not ok:
+            data = backfill_empty_fields_with_local_fallback(
+                data,
+                subject=subject,
+                grade=grade,
+                title=title,
+                material=material,
+                class_hour=class_hour,
+                required_fields=fields,
+            )
+            return data, "deepseek_with_local_backfill"
         load_local_env()
         return data, os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro").strip() or "deepseek-v4-pro"
     except Exception:

@@ -39,14 +39,32 @@ def evaluate_lesson_output(
     template_analysis: dict[str, Any] | None,
     fill_report: dict[str, Any] | None = None,
 ) -> EvaluationReport:
+    template_field_count = len((template_analysis or {}).get("mapped_fields") or [])
+    non_empty_field_count = sum(1 for value in (fields or {}).values() if str(value or "").strip())
     checks = [
         _check(bool(fields), "fields_present", "已返回文档字段。", "未返回文档字段。"),
         _check(bool(download_url), "download_url", "已生成下载链接。", "缺少下载链接。"),
         _check(bool(output_path and output_path.exists()), "word_file", "Word 文件已生成。", "Word 文件不存在。"),
         _check(_template_fields_filled(fields, template_analysis), "template_fields", "模板字段已在结果中覆盖。", "部分模板字段没有生成内容。"),
+        _check(
+            not (template_field_count > 0 and non_empty_field_count == 0),
+            "blank_template_precheck",
+            "生成字段中存在非空内容。",
+            "生成失败：检测到输出可能为空白模板，未生成任何非空字段。",
+        ),
     ]
 
     if fill_report:
+        fill_errors = fill_report.get("errors") or []
+        fill_warnings = fill_report.get("warnings") or []
+        checks.append(
+            _check(
+                not fill_errors,
+                "fill_report_errors",
+                "Word 填充报告没有错误。",
+                "; ".join(str(item) for item in fill_errors),
+            )
+        )
         checks.append(
             _check(
                 not fill_report.get("missing_fields"),
@@ -63,6 +81,16 @@ def evaluate_lesson_output(
                 f"Word 中仍有占位符：{', '.join(fill_report.get('remaining_placeholders') or [])}",
             )
         )
+        checks.append(
+            _check(
+                int(fill_report.get("filled_non_empty_count") or 0) > 0,
+                "filled_non_empty_count",
+                "Word 已写入非空字段。",
+                "生成失败：检测到输出可能为空白模板，未写入任何非空字段。",
+            )
+        )
+        if fill_warnings:
+            checks.append(EvaluationCheck("fill_report_warnings", True, "; ".join(str(item) for item in fill_warnings)))
 
     if output_path and output_path.exists():
         has_placeholder = _docx_has_placeholders(output_path)

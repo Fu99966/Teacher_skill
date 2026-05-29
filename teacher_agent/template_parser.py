@@ -7,7 +7,7 @@ from typing import Any, Iterable
 from docx import Document
 
 
-PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_\-\.]+)\s*\}\}")
+PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([^{}\r\n\t<>]+?)\s*\}\}")
 
 FIELD_LABELS: dict[str, tuple[str, ...]] = {
     "lesson_title": ("课题", "课题名称", "题目", "教学课题", "授课内容", "教学内容"),
@@ -29,6 +29,28 @@ FIELD_LABELS: dict[str, tuple[str, ...]] = {
     "reflection": ("教学反思", "课后反思", "反思", "教学后记"),
 }
 
+DIRECT_LABEL_FIELDS = {
+    "教材分析",
+    "课程标准",
+    "核心素养",
+    "学习任务",
+    "学习活动",
+    "评价任务",
+    "评价标准",
+    "教学评价",
+    "教学资源",
+    "信息技术应用",
+    "课堂小结",
+    "课后拓展",
+    "安全教育",
+    "德育渗透",
+    "跨学科融合",
+    "二次备课",
+    "个性化修改",
+    "教研组意见",
+    "审批意见",
+}
+
 FIELD_LABELS_BY_ALIAS: list[tuple[str, str]] = [
     (field, alias) for field, aliases in FIELD_LABELS.items() for alias in aliases
 ]
@@ -38,10 +60,14 @@ def find_placeholders_in_text(text: str) -> list[str]:
     """Return placeholder names found in text, preserving order."""
     fields: list[str] = []
     for match in PLACEHOLDER_PATTERN.finditer(text or ""):
-        field = match.group(1).strip()
+        field = _sanitize_field_name(match.group(1))
         if field and field not in fields:
             fields.append(field)
     return fields
+
+
+def _sanitize_field_name(text: str) -> str:
+    return re.sub(r"[\r\n\t<>]", "", str(text or "")).replace("{{", "").replace("}}", "").strip()
 
 
 def _normalize_label(text: str) -> str:
@@ -66,6 +92,24 @@ def _match_field(label: str) -> str | None:
                 best_field = field
                 best_alias_len = len(normalized_alias)
     return best_field
+
+
+def _direct_field_from_label(label: str) -> str | None:
+    normalized = _normalize_label(label)
+    if not normalized:
+        return None
+    if normalized in DIRECT_LABEL_FIELDS:
+        return normalized
+    if re.search(r"[\u4e00-\u9fff]", normalized) and 2 <= len(normalized) <= 18:
+        return normalized
+    return None
+
+
+def _has_plausible_fill_target(row_texts: list[str], cell_index: int) -> bool:
+    if cell_index + 1 >= len(row_texts):
+        return False
+    next_text = row_texts[cell_index + 1]
+    return _is_blankish(next_text) or "{{" in next_text or not _match_field(next_text)
 
 
 def _cell_text(cell) -> str:
@@ -206,6 +250,8 @@ def _scan_table_labels(
                 )
 
             field = _match_field(text)
+            if not field and _has_plausible_fill_target(row_texts, cell_index):
+                field = _direct_field_from_label(text)
             if not field or field in table_mappings:
                 continue
 

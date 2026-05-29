@@ -83,6 +83,8 @@ def build_lesson_tool_registry(
             fill_report=export.get("fill_report"),
         )
         context["evaluation_report"] = report.to_dict()
+        if not report.passed:
+            raise ValueError(report.summary)
         return {"passed": report.passed, "summary": report.summary}
 
     def save_history(context: dict[str, Any]) -> dict[str, Any]:
