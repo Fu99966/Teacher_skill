@@ -1,60 +1,69 @@
 from __future__ import annotations
 
-import argparse
+import subprocess
+import sys
+from pathlib import Path
 
 from docx import Document
 
-from teacher_agent import cli
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_cli_fill_template_outputs_report(tmp_path, capsys):
+def test_cli_fill_template_outputs_report(tmp_path):
     template = tmp_path / "template.docx"
     data = tmp_path / "data.json"
     output = tmp_path / "out.docx"
-    document = Document()
-    document.add_paragraph("{{lesson_title}}")
-    document.save(template)
+
+    doc = Document()
+    doc.add_paragraph("{{lesson_title}}")
+    doc.save(str(template))
+
     data.write_text('{"lesson_title": "桂林山水"}', encoding="utf-8")
 
-    cli.cmd_fill_template(argparse.Namespace(template=str(template), data=str(data), output=str(output)))
-    captured = capsys.readouterr().out
+    result = subprocess.run(
+        [sys.executable, "-m", "teacher_agent.cli", "fill-template",
+         "--template", str(template), "--data", str(data), "--output", str(output)],
+        capture_output=True, text=True, encoding="utf-8", cwd=str(PROJECT_ROOT),
+    )
+    stdout = result.stdout
 
-    assert "fill_report" in captured
-    assert '"success": true' in captured
-    assert Document(output).paragraphs[0].text == "桂林山水"
+    assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {stdout}"
+    assert output.exists(), f"Output file not created: {output}"
+    assert "fill_report" in stdout
+    assert '"success": true' in stdout
+    assert Document(str(output)).paragraphs[0].text == "桂林山水"
 
 
-def test_cli_generate_uses_fallback_and_fills_word(tmp_path, monkeypatch, capsys):
+def test_cli_generate_uses_fallback_and_fills_word(tmp_path, monkeypatch):
     monkeypatch.setattr("teacher_agent.lesson_generator.is_deepseek_configured", lambda: False)
     template = tmp_path / "template.docx"
     material = tmp_path / "material.md"
     output = tmp_path / "out.docx"
-    document = Document()
-    document.add_paragraph("{{lesson_title}}")
-    table = document.add_table(rows=1, cols=2)
+
+    doc = Document()
+    doc.add_paragraph("{{lesson_title}}")
+    table = doc.add_table(rows=1, cols=2)
     table.cell(0, 0).text = "教学目标"
     table.cell(0, 1).text = ""
-    document.save(template)
+    doc.save(str(template))
     material.write_text("教材内容", encoding="utf-8")
 
-    args = argparse.Namespace(
-        template=str(template),
-        subject="语文",
-        grade="四年级",
-        title="桂林山水",
-        material_file=str(material),
-        output=str(output),
-        class_hour="1课时",
-        class_type="新授课",
-        teaching_style="常规启发式",
-        student_level="常规混合水平",
-        generation_depth="标准",
-        strict_ai=False,
+    result = subprocess.run(
+        [sys.executable, "-m", "teacher_agent.cli", "generate",
+         "--template", str(template),
+         "--subject", "语文",
+         "--grade", "四年级",
+         "--title", "桂林山水",
+         "--material-file", str(material),
+         "--output", str(output),
+         "--no-strict-ai"],
+        capture_output=True, text=True, encoding="utf-8", cwd=str(PROJECT_ROOT),
     )
-    cli.cmd_generate(args)
-    captured = capsys.readouterr().out
+    stdout = result.stdout
 
-    assert '"generation_backend": "local_fallback"' in captured
-    assert '"success": true' in captured
-    assert Document(output).paragraphs[0].text == "桂林山水"
-    assert Document(output).tables[0].cell(0, 1).text
+    assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {stdout}"
+    assert '"generation_backend": "local_fallback"' in stdout
+    assert '"success": true' in stdout
+    assert output.exists()
+    assert Document(str(output)).paragraphs[0].text == "桂林山水"
+    assert Document(str(output)).tables[0].cell(0, 1).text
