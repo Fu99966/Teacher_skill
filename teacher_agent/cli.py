@@ -156,6 +156,152 @@ def cmd_create_sample_template(args: argparse.Namespace) -> None:
     print(f"Created sample template: {output}")
 
 
+def cmd_diagnose_template(args: argparse.Namespace) -> None:
+    """Diagnose a real template: analyze structure, generate fields, fill, and report."""
+    from .docx_filler import fill_docx_template
+    from .template_parser import analyze_template
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Step 1: Parse template
+    analysis = analyze_template(args.template)
+    (output_dir / "template_analysis.json").write_text(
+        json.dumps(analysis, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # Step 2: Write table structure
+    table_structure = analysis.get("tables", [])
+    (output_dir / "table_structure.json").write_text(
+        json.dumps(table_structure, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # Step 3: Generate fields
+    material = _read_text(args.material_file)
+    template_fields, template_analysis = _template_fields(args.template)
+    fields, backend = draft_lesson_document_fields_with_source(
+        args.subject,
+        args.grade,
+        args.title,
+        material,
+        args.class_hour,
+        args.class_type,
+        args.teaching_style,
+        args.student_level,
+        args.generation_depth,
+        template_fields,
+        args.strict_ai,
+        (template_analysis or {}).get("field_context"),
+    )
+    (output_dir / "generated_fields.json").write_text(
+        json.dumps(fields, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # Step 4: Fill template
+    output_docx = output_dir / "output.docx"
+    report = fill_docx_template(args.template, fields, output_docx)
+    (output_dir / "fill_report.json").write_text(
+        json.dumps(report.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # Step 5: Extract text from output Word
+    from docx import Document
+    try:
+        output_doc = Document(str(output_docx))
+        text_parts: list[str] = []
+        for paragraph in output_doc.paragraphs:
+            if paragraph.text.strip():
+                text_parts.append(paragraph.text)
+        for table in output_doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    t = cell.text.strip()
+                    if t:
+                        text_parts.append(t)
+        output_text = "\n".join(text_parts)
+    except Exception as exc:
+        output_text = f"[无法读取输出Word文本: {exc}]"
+
+    (output_dir / "output_text.txt").write_text(output_text, encoding="utf-8")
+
+    # Step 6: Root cause analysis
+    root_cause_parts: list[str] = [
+        "# 诊断报告：root_cause.md",
+        "",
+        f"## 模板分析",
+        f"- 模板文件: {args.template}",
+        f"- 识别字段数: {analysis.get('fillable_count', 0)}",
+        f"- 识别字段: {', '.join(analysis.get('mapped_fields', []))}",
+        f"- 模式: {analysis.get('mode', 'unknown')}",
+        f"- 表格数: {analysis.get('table_count', 0)}",
+        "",
+        f"## 生成结果",
+        f"- 生成后端: {backend}",
+        f"- 生成字段数: {len(fields)}",
+        f"- 非空字段数: {sum(1 for v in fields.values() if v and v.strip())}",
+        "",
+        f"## 填充结果",
+        f"- 已填字段: {', '.join(report.filled_fields) if report.filled_fields else '无'}",
+        f"- 空字段(跳过): {', '.join(report.skipped_empty_fields) if report.skipped_empty_fields else '无'}",
+        f"- 缺失字段: {', '.join(report.missing_fields) if report.missing_fields else '无'}",
+        f"- 未填充字段: {', '.join(report.unfilled_template_fields) if report.unfilled_template_fields else '无'}",
+        f"- filled_non_empty_count: {report.filled_non_empty_count}",
+        f"- table_write_count: {report.table_write_count}",
+        "",
+        f"## 根因判断",
+    ]
+
+    if report.errors:
+        root_cause_parts.append(f"❌ **失败**: {'; '.join(report.errors)}")
+    elif analysis.get("needs_template_markers"):
+        root_cause_parts.append("❌ **失败**: 字段识别失败 - 模板中未识别到任何可填字段。")
+    elif not report.filled_fields:
+        root_cause_parts.append("❌ **失败**: 写入定位失败 - 识别到了字段但未能写入任何内容。")
+    elif report.filled_non_empty_count == 0:
+        root_cause_parts.append("❌ **失败**: 生成字段为空 - 所有字段内容均为空。")
+    else:
+        # Check output text for key content
+        key_checks = []
+        title_val = fields.get("lesson_title", "")
+        if title_val and title_val.strip():
+            found_title = title_val.strip() in output_text
+            key_checks.append(f"lesson_title ('{title_val.strip()[:30]}') -> {'✅存在于输出Word' if found_title else '❌未在输出Word中找到'}")
+        
+        goals_val = fields.get("teaching_goals", "")
+        if goals_val and goals_val.strip():
+            snippet = goals_val.strip()[:30]
+            found = snippet in output_text
+            key_checks.append(f"teaching_goals ({snippet}...) -> {'✅存在于输出Word' if found else '❌未在输出Word中找到'}")
+        
+        if key_checks:
+            root_cause_parts.append("\n### 关键词验证\n" + "\n".join(f"- {c}" for c in key_checks))
+        
+        all_found = all("✅" in c for c in key_checks) if key_checks else False
+        if all_found:
+            root_cause_parts.append("\n✅ **成功**: 内容已写入Word文档。")
+        else:
+            root_cause_parts.append("\n⚠️ **部分成功**: 填充报告显示有内容填入，但部分关键词未在输出Word中验证到。")
+
+    (output_dir / "root_cause.md").write_text("\n".join(root_cause_parts), encoding="utf-8")
+
+    # Print summary
+    payload = {
+        "template": args.template,
+        "output_dir": str(output_dir),
+        "analysis": {
+            "mapped_fields": analysis.get("mapped_fields", []),
+            "fillable_count": analysis.get("fillable_count", 0),
+            "mode": analysis.get("mode"),
+        },
+        "generation_backend": backend,
+        "fill_report": report.to_dict(),
+        "output_text_preview": output_text[:500] if output_text else "(空)",
+    }
+    _print_json(payload)
+    if report.errors:
+        raise ValueError("; ".join(report.errors))
+
+
 def cmd_web(args: argparse.Namespace) -> None:
     from .web_app import run
 
@@ -217,6 +363,12 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--host", default="127.0.0.1")
     web.add_argument("--port", type=int, default=8765)
     web.set_defaults(func=cmd_web)
+
+    diagnose = subparsers.add_parser("diagnose-template", help="diagnose a real template: analyze, generate, fill, and report")
+    diagnose.add_argument("--template", required=True)
+    _add_lesson_args(diagnose)
+    diagnose.add_argument("--output-dir", required=True)
+    diagnose.set_defaults(func=cmd_diagnose_template)
 
     return parser
 

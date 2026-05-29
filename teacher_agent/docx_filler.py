@@ -22,6 +22,7 @@ class FillReport:
     remaining_placeholders: list[str] = field(default_factory=list)
     placeholder_fields_filled: list[str] = field(default_factory=list)
     table_fields_filled: list[str] = field(default_factory=list)
+    table_write_count: int = 0
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -238,8 +239,48 @@ def _resolve_table(document: Document, target: dict[str, Any]):
     return tables[table_index]
 
 
-def _fill_table_mappings(document: Document, data: dict[str, Any], mappings: dict[str, Any], report: FillReport) -> None:
-    for field_name, target in mappings.items():
+def _fill_one_table_target(
+    document: Document,
+    field_name: str,
+    value: str,
+    target: dict[str, Any],
+    report: FillReport,
+) -> bool:
+    """Attempt to write a single target. Returns True if successful."""
+    mapping_type = target.get("type")
+    if mapping_type not in {"table_cell", "table_cell_append"}:
+        return False
+
+    row_index = int(target.get("row", -1))
+    col_index = int(target.get("col", -1))
+    if row_index < 0 or col_index < 0:
+        return False
+
+    table = _resolve_table(document, target)
+    if table is None:
+        return False
+
+    if row_index >= len(table.rows) or col_index >= len(table.rows[row_index].cells):
+        return False
+
+    cell = table.rows[row_index].cells[col_index]
+    if mapping_type == "table_cell_append":
+        _append_cell_preserving_label(cell, value)
+    else:
+        _write_cell_preserving_layout(cell, value)
+
+    report.table_write_count += 1
+    return True
+
+
+def _fill_table_mappings(
+    document: Document,
+    data: dict[str, Any],
+    mappings: dict[str, list[dict[str, Any]]],
+    report: FillReport,
+) -> None:
+    """Fill all table mappings, supporting multiple targets per field."""
+    for field_name, targets in mappings.items():
         if field_name not in data:
             _add_ordered(report.missing_fields, field_name)
             continue
@@ -248,30 +289,15 @@ def _fill_table_mappings(document: Document, data: dict[str, Any], mappings: dic
             _add_ordered(report.skipped_empty_fields, field_name)
             continue
 
-        mapping_type = target.get("type")
-        if mapping_type not in {"table_cell", "table_cell_append"}:
-            continue
+        value = data[field_name]
+        wrote_any = False
+        for target in targets:
+            if _fill_one_table_target(document, field_name, value, target, report):
+                wrote_any = True
 
-        row_index = int(target.get("row", -1))
-        col_index = int(target.get("col", -1))
-        if row_index < 0 or col_index < 0:
-            continue
-
-        table = _resolve_table(document, target)
-        if table is None:
-            continue
-
-        if row_index >= len(table.rows) or col_index >= len(table.rows[row_index].cells):
-            continue
-
-        cell = table.rows[row_index].cells[col_index]
-        if mapping_type == "table_cell_append":
-            _append_cell_preserving_label(cell, data[field_name])
-        else:
-            _write_cell_preserving_layout(cell, data[field_name])
-
-        _add_ordered(report.filled_fields, field_name)
-        _add_ordered(report.table_fields_filled, field_name)
+        if wrote_any:
+            _add_ordered(report.filled_fields, field_name)
+            _add_ordered(report.table_fields_filled, field_name)
 
 
 def _remaining_placeholders(document: Document) -> list[str]:
@@ -310,8 +336,12 @@ def fill_docx_template(template_path: str | Path, data: dict[str, Any], output_p
     report.filled_non_empty_count = len(report.filled_fields)
     template_field_count = len(analysis.get("mapped_fields", []))
     if template_field_count > 0 and report.filled_non_empty_count == 0:
-        report.errors.append("生成失败：检测到输出可能为空白模板，未写入任何非空字段。")
-    elif template_field_count > 0 and report.filled_non_empty_count < template_field_count * 0.5:
-        report.warnings.append("警告：本次只填入少量模板字段，请检查字段映射和生成结果。")
+        report.errors.append(
+            "生成失败：检测到输出可能为空白模板，未写入任何非空字段。"
+        )
+    elif template_field_count > 0 and report.filled_non_empty_count < max(1, template_field_count * 0.5):
+        report.warnings.append(
+            "警告：本次只填入少量模板字段，请检查字段映射和生成结果。"
+        )
     document.save(str(output_path))
     return report

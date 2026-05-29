@@ -41,7 +41,7 @@ def test_table_label_maps_to_blank_right_cell(tmp_path):
     analysis = analyze_template(path)
 
     assert analysis["mapped_fields"] == ["teaching_goals"]
-    assert analysis["table_mappings"]["teaching_goals"]["col"] == 1
+    assert analysis["table_mappings"]["teaching_goals"][0]["col"] == 1
 
 
 def test_unknown_chinese_table_label_becomes_dynamic_field(tmp_path):
@@ -55,7 +55,7 @@ def test_unknown_chinese_table_label_becomes_dynamic_field(tmp_path):
     analysis = analyze_template(path)
 
     assert analysis["mapped_fields"] == ["教学评价"]
-    assert analysis["table_mappings"]["教学评价"]["col"] == 1
+    assert analysis["table_mappings"]["教学评价"][0]["col"] == 1
     assert analysis["field_context"]["教学评价"][0]["label"] == "教学评价"
 
 
@@ -109,4 +109,4 @@ def test_header_table_label_is_detected(tmp_path):
     analysis = analyze_template(path)
 
     assert analysis["mapped_fields"] == ["lesson_title"]
-    assert analysis["table_mappings"]["lesson_title"]["location"] == "header_table"
+    assert analysis["table_mappings"]["lesson_title"][0]["location"] == "header_table"
