@@ -6,14 +6,13 @@ from pathlib import Path
 from docx import Document
 
 from teacher_agent.docx_filler import fill_docx_template
-from teacher_agent.template_parser import analyze_template
+from teacher_agent.template_parser import analyze_template, parse_table_grid
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 REAL_TEMPLATE = FIXTURE_DIR / "教案模板.docx"
 
 
 def _extract_all_text(docx_path: Path) -> str:
-    """Extract all text from a docx file (paragraphs + tables)."""
     doc = Document(str(docx_path))
     parts: list[str] = []
     for p in doc.paragraphs:
@@ -28,68 +27,112 @@ def _extract_all_text(docx_path: Path) -> str:
     return "\n".join(parts)
 
 
-# ── Test 1: Real template field detection ──────────────────────────────
+# ── Test 1: Real template field detection (MUST include reflection) ────
 
 def test_real_template_fields_are_detected():
     analysis = analyze_template(REAL_TEMPLATE)
     fields = analysis["mapped_fields"]
 
-    assert "lesson_title" in fields, f"Missing lesson_title in fields: {fields}"
-    assert "teaching_goals" in fields, f"Missing teaching_goals in fields: {fields}"
-    assert "teaching_key_difficult" in fields, f"Missing teaching_key_difficult in fields: {fields}"
-    assert "teaching_process" in fields, f"Missing teaching_process in fields: {fields}"
-    assert "teaching_method" in fields, f"Missing teaching_method in fields: {fields}"
-    assert "homework" in fields, f"Missing homework in fields: {fields}"
-    assert "reflection" not in fields, f"reflection should NOT be in plain table (our template has no 课后小记): {fields}"
-    # Actually our template has 作业 but not 课后小记. reflection may be detected from "课后小记" - our template doesn't have it.
-    # Let's check what we actually have
     print(f"\nDetected fields: {fields}")
+
+    assert "lesson_title" in fields, f"Missing lesson_title: {fields}"
+    assert "teaching_goals" in fields, f"Missing teaching_goals: {fields}"
+    assert "teaching_key_difficult" in fields, f"Missing teaching_key_difficult: {fields}"
+    assert "teaching_process" in fields, f"Missing teaching_process: {fields}"
+    assert "teaching_method" in fields, f"Missing teaching_method: {fields}"
+    assert "homework" in fields, f"Missing homework: {fields}"
+    assert "reflection" in fields, f"Missing reflection (课后小记): {fields}"
 
     assert analysis["fillable_count"] > 0
     assert not analysis["needs_template_markers"]
 
 
-# ── Test 2: 主要教学内容 is NOT lesson_title ───────────────────────────
+# ── Test 2: 课后小记 MUST be detected as reflection ──────────────────
+
+def test_real_template_detects_reflection():
+    analysis = analyze_template(REAL_TEMPLATE)
+    fields = analysis["mapped_fields"]
+    assert "reflection" in fields, f"Missing reflection in fields: {fields}"
+
+    # Verify the label mapping
+    reflection_targets = analysis["table_mappings"].get("reflection", [])
+    labels = [m.get("label", "").replace(" ", "").replace("\n", "") for m in reflection_targets]
+    print(f"\nReflection labels: {labels}")
+    assert any("课后小记" in lbl for lbl in labels), f"课后小记 not in reflection labels: {labels}"
+
+
+# ── Test 3: 主要教学内容 is NOT lesson_title ───────────────────────────
 
 def test_main_teaching_content_is_not_lesson_title():
     analysis = analyze_template(REAL_TEMPLATE)
 
     lesson_mappings = analysis["table_mappings"].get("lesson_title", [])
-    labels = [
-        m.get("label", "").replace(" ", "").replace("\n", "")
-        for m in lesson_mappings
-    ]
+    labels = [m.get("label", "").replace(" ", "").replace("\n", "") for m in lesson_mappings]
+    assert "主要教学内容" not in labels, f"主要教学内容 wrongly in lesson_title: {labels}"
 
-    assert "主要教学内容" not in labels, (
-        f"'主要教学内容' should NOT be in lesson_title labels, got: {labels}"
-    )
-
-    # Verify it IS in teaching_process
     process_mappings = analysis["table_mappings"].get("teaching_process", [])
-    process_labels = [
-        m.get("label", "").replace(" ", "").replace("\n", "")
-        for m in process_mappings
-    ]
-    assert any(lbl == "主要教学内容" for lbl in process_labels), (
-        f"'主要教学内容' should be in teaching_process labels, got: {process_labels}"
+    process_labels = [m.get("label", "").replace(" ", "").replace("\n", "") for m in process_mappings]
+    assert any(lbl == "主要教学内容" for lbl in process_labels), f"主要教学内容 not in teaching_process: {process_labels}"
+
+
+# ── Test 4: 主要教学内容 targets next row ────────────────────────────
+
+def test_main_teaching_content_targets_next_row():
+    analysis = analyze_template(REAL_TEMPLATE)
+    mappings = analysis["table_mappings"].get("teaching_process", [])
+
+    target = None
+    for m in mappings:
+        label = m.get("label", "").replace(" ", "").replace("\n", "")
+        if label == "主要教学内容":
+            target = m
+            break
+
+    assert target is not None, "No teaching_process mapping for 主要教学内容"
+    assert target["target_type"] in {"next_row_cell", "table_cell", "right_cell"}, f"Unexpected target_type: {target}"
+    assert target["row"] > target["label_row"], (
+        f"teaching_process target_row({target['row']}) must be > label_row({target['label_row']}): {target}"
     )
+    print(f"\nteaching_process target: label_row={target['label_row']}, row={target['row']}, "
+          f"target_type={target['target_type']}, grid_col={target.get('grid_col')}")
 
 
-# ── Test 3: Fixed fields are written to real template ──────────────────
+# ── Test 5: 教学方法的运用 targets next row ─────────────────────────
+
+def test_teaching_method_targets_next_row():
+    analysis = analyze_template(REAL_TEMPLATE)
+    mappings = analysis["table_mappings"].get("teaching_method", [])
+
+    target = None
+    for m in mappings:
+        label = m.get("label", "").replace(" ", "").replace("\n", "")
+        if label == "教学方法的运用":
+            target = m
+            break
+
+    assert target is not None, "No teaching_method mapping for 教学方法的运用"
+    assert target["row"] > target["label_row"], (
+        f"teaching_method target_row({target['row']}) must be > label_row({target['label_row']}): {target}"
+    )
+    print(f"\nteaching_method target: label_row={target['label_row']}, row={target['row']}, "
+          f"target_type={target['target_type']}, grid_col={target.get('grid_col')}")
+
+
+# ── Test 6: Fixed fields write to real template ──────────────────────
 
 def test_fixed_fields_write_to_real_template(tmp_path):
     output_path = tmp_path / "output.docx"
     fields = {
-        "授课日期": "2026年5月29日",
-        "grade": "24物联网1班",
+        "teaching_date": "2026年5月29日",
+        "class_name": "24物联网1班",
         "lesson_title": "传感器基础",
-        "授课类型": "新授课",
+        "class_type": "新授课",
         "class_hour": "2课时",
         "teaching_environment": "多媒体教室，具备投影设备和传感器演示套件。",
         "teaching_goals": "理解传感器的基本概念、分类和典型应用。",
         "teaching_key_difficult": "重点：传感器分类与工作原理。难点：传感器信号与物联网系统的关系。",
         "teaching_aids": "PPT、传感器实物、实验演示板。",
-        "teaching_process": "一、导入：展示智能家居传感器案例。\n二、新授：讲解传感器概念、分类与应用。\n三、实践：学生观察传感器模块并分析功能。\n四、总结：梳理传感器在物联网中的作用。",
+        "teaching_process": "这是主要教学内容正文：一、导入展示案例。二、新授讲解概念。三、实践观察分析。四、总结梳理作用。",
         "teaching_method": "案例教学、任务驱动、小组讨论、实物演示。",
         "homework": "完成传感器分类表，并举出三个生活中的传感器应用案例。",
         "reflection": "课后关注学生是否能把传感器与物联网应用场景建立联系。",
@@ -98,33 +141,86 @@ def test_fixed_fields_write_to_real_template(tmp_path):
     report = fill_docx_template(REAL_TEMPLATE, fields, output_path)
     output_text = _extract_all_text(output_path)
 
-    print(f"\nFill report: filled={report.filled_fields}, errors={report.errors}")
-    print(f"Output text preview: {output_text[:300]}")
+    print(f"\nFill report: filled={report.filled_fields}, errors={report.errors}, table_write={report.table_write_count}")
+    print(f"Output text preview: {output_text[:500]}")
 
-    # Must contain these key texts
-    assert "传感器基础" in output_text, f"Output missing '传感器基础': {output_text[:200]}"
-    assert "理解传感器的基本概念" in output_text, f"Output missing teaching_goals content"
-    assert "案例教学" in output_text, f"Output missing teaching_method content"
-    assert "完成传感器分类表" in output_text, f"Output missing homework content"
+    # Check key content
+    assert "传感器基础" in output_text, "Missing '传感器基础'"
+    assert "理解传感器的基本概念" in output_text, "Missing teaching_goals content"
+    assert "案例教学" in output_text, "Missing teaching_method content"
+    assert "完成传感器分类表" in output_text, "Missing homework content"
+    assert "课后关注学生" in output_text, "Missing reflection content"
+    assert "这是主要教学内容正文" in output_text, "Missing teaching_process content"
 
-    # Report checks
+    # Verify teaching_process is NOT in the label row
+    doc = Document(str(output_path))
+    for table in doc.tables:
+        for row_idx, row in enumerate(table.rows):
+            for cell in row.cells:
+                t = cell.text.strip()
+                if t == "主要教学内容":
+                    # The cell containing the label must NOT also contain the fill content
+                    assert "这是主要教学内容正文" not in t, (
+                        f"teaching_process content leaked into label cell at row {row_idx}"
+                    )
+
     assert "lesson_title" in report.filled_fields
     assert report.filled_non_empty_count > 0
     assert not report.errors, f"Unexpected errors: {report.errors}"
 
 
-# ── Test 4: Duplicate table writing ────────────────────────────────────
+# ── Test 7: Content is NOT in the same cell as labels ──────────────────
+
+def test_content_not_in_label_cells(tmp_path):
+    """Ensure 主要教学内容 and 教学方法的运用 content is in next row, not label row."""
+    output_path = tmp_path / "output_pos.docx"
+    fields = {
+        "lesson_title": "传感器基础",
+        "teaching_process": "【教学正文A】导入新课→探究新知→应用巩固",
+        "teaching_method": "【教学方法B】案例+任务驱动+小组讨论",
+        "teaching_goals": "理解传感器",
+        "teaching_key_difficult": "重点难点内容",
+        "homework": "课后练习",
+        "reflection": "课后反思内容",
+    }
+
+    report = fill_docx_template(REAL_TEMPLATE, fields, output_path)
+    assert not report.errors, f"Errors: {report.errors}"
+
+    doc = Document(str(output_path))
+    for table in doc.tables:
+        grid = parse_table_grid(table)
+        for row_idx, row_grid in enumerate(grid):
+            for gc, gcell in enumerate(row_grid):
+                if gcell is None or gcell.grid_col != gc:
+                    continue
+                text = gcell.text
+                if "主要教学内容" in text:
+                    assert "【教学正文A】" not in text, (
+                        f"teaching_process content leaked into label at row={row_idx}, grid_col={gc}"
+                    )
+                if "教学方法的运用" in text:
+                    assert "【教学方法B】" not in text, (
+                        f"teaching_method content leaked into label at row={row_idx}, grid_col={gc}"
+                    )
+
+    output_text = _extract_all_text(output_path)
+    assert "【教学正文A】" in output_text
+    assert "【教学方法B】" in output_text
+
+
+# ── Test 8: Duplicate table writing ────────────────────────────────────
 
 def test_duplicate_tables_get_filled(tmp_path):
-    """Our template has 2 tables, both with 课题, so 传感器基础 should appear at least twice."""
     output_path = tmp_path / "output_dup.docx"
     fields = {
         "lesson_title": "传感器基础",
         "teaching_goals": "理解传感器的基本概念",
         "teaching_key_difficult": "重点：分类。难点：信号关系。",
-        "teaching_process": "导入→新授→实践→总结",
+        "teaching_process": "【正文】导入→新授→实践→总结",
         "teaching_method": "案例教学法",
         "homework": "完成练习题",
+        "reflection": "课后反思内容",
         "teaching_environment": "多媒体教室",
         "teaching_aids": "PPT课件",
         "class_hour": "2课时",
@@ -133,76 +229,33 @@ def test_duplicate_tables_get_filled(tmp_path):
     report = fill_docx_template(REAL_TEMPLATE, fields, output_path)
     output_text = _extract_all_text(output_path)
 
-    # 传感器基础 should appear at least 2 times (one per table)
     count = output_text.count("传感器基础")
-    print(f"\n'传感器基础' appears {count} times in output")
-    assert count >= 2, f"Expected '传感器基础' at least 2 times, got {count}"
+    process_count = output_text.count("【正文】")
+    method_count = output_text.count("案例教学法")
+    print(f"\n传感器基础: {count}, 【正文】: {process_count}, 案例教学法: {method_count}")
 
-    # Check fill report
+    assert count >= 2, f"Expected >=2, got {count}"
+    assert process_count >= 2, f"Expected >=2, got {process_count}"
+    assert method_count >= 2, f"Expected >=2, got {method_count}"
+
     assert "lesson_title" in report.table_fields_filled
-    assert report.table_write_count >= 2, f"Expected table_write_count >= 2, got {report.table_write_count}"
+    assert report.table_write_count >= 6, f"Expected table_write_count >= 6, got {report.table_write_count}"
 
 
-# ── Test 5: Next-row fill for 主要教学内容/教学方法的运用 ─────────────
-
-def test_next_row_fill_for_teaching_content_and_method(tmp_path):
-    """主要教学内容 and 教学方法的运用 should write to the next row's blank cells."""
-    analysis = analyze_template(REAL_TEMPLATE)
-    process_mappings = analysis["table_mappings"].get("teaching_process", [])
-    method_mappings = analysis["table_mappings"].get("teaching_method", [])
-
-    # At least one of these should target a row different from label row
-    process_next_row = any(m.get("label_row") != m.get("row") for m in process_mappings)
-    method_next_row = any(m.get("label_row") != m.get("row") for m in method_mappings)
-
-    print(f"\nteaching_process mappings: {len(process_mappings)} targets")
-    for m in process_mappings:
-        print(f"  label_row={m.get('label_row')}, target_row={m.get('row')}, table={m.get('table')}")
-    print(f"teaching_method mappings: {len(method_mappings)} targets")
-    for m in method_mappings:
-        print(f"  label_row={m.get('label_row')}, target_row={m.get('row')}, table={m.get('table')}")
-
-    assert process_next_row or method_next_row, (
-        "Expected next-row fill for 主要教学内容 or 教学方法的运用"
-    )
-
-    # Now verify with actual fill
-    output_path = tmp_path / "output_next_row.docx"
-    fields = {
-        "lesson_title": "测试课题",
-        "teaching_process": "这是教学过程内容",
-        "teaching_method": "案例教学法",
-        "teaching_goals": "测试目标",
-        "teaching_key_difficult": "测试重难点",
-        "homework": "测试作业",
-    }
-    report = fill_docx_template(REAL_TEMPLATE, fields, output_path)
-    output_text = _extract_all_text(output_path)
-
-    print(f"\nFill report: filled={report.filled_fields}, table_write_count={report.table_write_count}")
-    assert "这是教学过程内容" in output_text, f"teaching_process content not found: {output_text[:200]}"
-    assert "案例教学法" in output_text, f"teaching_method content not found: {output_text[:200]}"
-
-
-# ── Test 6: Blank template error ────────────────────────────────────────
+# ── Test 9: Blank output is rejected ────────────────────────────────────
 
 def test_blank_output_is_rejected():
-    """If we provide all-empty fields, system must report error."""
     fields = {
-        "lesson_title": "",
-        "teaching_goals": "",
-        "teaching_key_difficult": "",
-        "teaching_process": "",
-        "teaching_method": "",
-        "homework": "",
+        "lesson_title": "", "teaching_goals": "", "teaching_key_difficult": "",
+        "teaching_process": "", "teaching_method": "", "homework": "",
+        "reflection": "",
     }
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f:
         output_path = Path(f.name)
-
     try:
         report = fill_docx_template(REAL_TEMPLATE, fields, output_path)
-        assert report.errors, f"Expected errors for blank output, got: {report.to_dict()}"
+        assert report.errors, f"Expected errors: {report.to_dict()}"
         assert "空白模板" in report.errors[0] or report.filled_non_empty_count == 0
     finally:
         if output_path.exists():

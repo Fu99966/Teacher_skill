@@ -7,7 +7,7 @@ from typing import Any
 
 from docx import Document
 
-from .template_parser import PLACEHOLDER_PATTERN, analyze_template, iter_paragraphs
+from .template_parser import PLACEHOLDER_PATTERN, analyze_template, iter_paragraphs, parse_table_grid, get_grid_cell_at
 
 
 @dataclass
@@ -115,7 +115,6 @@ def _replace_cross_run_placeholder(paragraph, match, data: dict[str, Any], repor
         if first_run_index is None:
             first_run_index = index
         last_run_index = index
-
     if first_run_index is None or last_run_index is None:
         return False
 
@@ -128,7 +127,6 @@ def _replace_cross_run_placeholder(paragraph, match, data: dict[str, Any], repor
     first_run.text = prefix + _docx_text(data[key]) + suffix
     for run_index in range(first_run_index + 1, last_run_index + 1):
         paragraph.runs[run_index].text = ""
-
     _add_ordered(report.filled_fields, key)
     _add_ordered(report.placeholder_fields_filled, key)
     return True
@@ -137,15 +135,12 @@ def _replace_cross_run_placeholder(paragraph, match, data: dict[str, Any], repor
 def _replace_paragraph(paragraph, data: dict[str, Any], report: FillReport) -> None:
     if "{{" not in paragraph.text:
         return
-
     for run in paragraph.runs:
         _replace_placeholders_in_run(run, data, report)
-
     full_text = "".join(run.text for run in paragraph.runs)
     matches = list(PLACEHOLDER_PATTERN.finditer(full_text))
     if not matches:
         return
-
     for match in reversed(matches):
         _replace_cross_run_placeholder(paragraph, match, data, report)
 
@@ -175,14 +170,11 @@ def _write_cell_preserving_layout(cell, value: Any) -> None:
     if not cell.paragraphs:
         cell.add_paragraph(text)
         return
-
     lines = text.split("\n")
     template_paragraph = cell.paragraphs[0]
     _write_paragraph_preserving_style(template_paragraph, lines[0] if lines else "")
-
     for paragraph in cell.paragraphs[1:]:
         _write_paragraph_preserving_style(paragraph, "")
-
     for line in lines[1:]:
         paragraph = cell.add_paragraph()
         _copy_paragraph_style(template_paragraph, paragraph)
@@ -196,18 +188,15 @@ def _append_cell_preserving_label(cell, value: Any) -> None:
     if not cell.paragraphs:
         cell.add_paragraph(text)
         return
-
     lines = text.split("\n")
     target = None
     for paragraph in cell.paragraphs[1:]:
         if not paragraph.text.strip():
             target = paragraph
             break
-
     if target is None:
         target = cell.add_paragraph()
         _copy_paragraph_style(cell.paragraphs[0], target)
-
     _write_paragraph_preserving_style(target, lines[0] if lines else "")
     for line in lines[1:]:
         paragraph = cell.add_paragraph()
@@ -220,23 +209,18 @@ def _resolve_table(document: Document, target: dict[str, Any]):
     table_index = int(target.get("table", -1))
     if table_index < 0:
         return None
-
     if location == "header_table":
         section_index = int(target.get("section") or 0)
         if section_index >= len(document.sections):
             return None
-        tables = document.sections[section_index].header.tables
+        return document.sections[section_index].header.tables[table_index] if table_index < len(document.sections[section_index].header.tables) else None
     elif location == "footer_table":
         section_index = int(target.get("section") or 0)
         if section_index >= len(document.sections):
             return None
-        tables = document.sections[section_index].footer.tables
+        return document.sections[section_index].footer.tables[table_index] if table_index < len(document.sections[section_index].footer.tables) else None
     else:
-        tables = document.tables
-
-    if table_index >= len(tables):
-        return None
-    return tables[table_index]
+        return document.tables[table_index] if table_index < len(document.tables) else None
 
 
 def _fill_one_table_target(
@@ -246,24 +230,42 @@ def _fill_one_table_target(
     target: dict[str, Any],
     report: FillReport,
 ) -> bool:
-    """Attempt to write a single target. Returns True if successful."""
+    """Write content to a single table target using grid-based cell lookup."""
     mapping_type = target.get("type")
     if mapping_type not in {"table_cell", "table_cell_append"}:
         return False
 
     row_index = int(target.get("row", -1))
-    col_index = int(target.get("col", -1))
-    if row_index < 0 or col_index < 0:
+    if row_index < 0:
         return False
 
     table = _resolve_table(document, target)
     if table is None:
         return False
 
-    if row_index >= len(table.rows) or col_index >= len(table.rows[row_index].cells):
+    # ── Grid-based cell lookup ──
+    grid = parse_table_grid(table)
+    grid_col = target.get("grid_col", target.get("col", -1))
+    if grid_col < 0:
+        # fallback: use physical col
+        col_physical = int(target.get("col", -1))
+        if col_physical < 0:
+            return False
+        if row_index >= len(table.rows) or col_physical >= len(table.rows[row_index].cells):
+            return False
+        cell = table.rows[row_index].cells[col_physical]
+    else:
+        cell = get_grid_cell_at(table, grid, row_index, grid_col)
+        if cell is None:
+            # fallback to physical col
+            col_physical = int(target.get("physical_col", int(target.get("col", 0))))
+            if row_index >= len(table.rows) or col_physical >= len(table.rows[row_index].cells):
+                return False
+            cell = table.rows[row_index].cells[col_physical]
+
+    if cell is None:
         return False
 
-    cell = table.rows[row_index].cells[col_index]
     if mapping_type == "table_cell_append":
         _append_cell_preserving_label(cell, value)
     else:
@@ -279,7 +281,6 @@ def _fill_table_mappings(
     mappings: dict[str, list[dict[str, Any]]],
     report: FillReport,
 ) -> None:
-    """Fill all table mappings, supporting multiple targets per field."""
     for field_name, targets in mappings.items():
         if field_name not in data:
             _add_ordered(report.missing_fields, field_name)
@@ -309,7 +310,6 @@ def _remaining_placeholders(document: Document) -> list[str]:
 
 
 def fill_docx_template(template_path: str | Path, data: dict[str, Any], output_path: str | Path) -> FillReport:
-    """Fill a .docx template while preserving document structure and reporting gaps."""
     template_path = Path(template_path)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -336,12 +336,8 @@ def fill_docx_template(template_path: str | Path, data: dict[str, Any], output_p
     report.filled_non_empty_count = len(report.filled_fields)
     template_field_count = len(analysis.get("mapped_fields", []))
     if template_field_count > 0 and report.filled_non_empty_count == 0:
-        report.errors.append(
-            "生成失败：检测到输出可能为空白模板，未写入任何非空字段。"
-        )
+        report.errors.append("生成失败：检测到输出可能为空白模板，未写入任何非空字段。")
     elif template_field_count > 0 and report.filled_non_empty_count < max(1, template_field_count * 0.5):
-        report.warnings.append(
-            "警告：本次只填入少量模板字段，请检查字段映射和生成结果。"
-        )
+        report.warnings.append("警告：本次只填入少量模板字段，请检查字段映射和生成结果。")
     document.save(str(output_path))
     return report
