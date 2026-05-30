@@ -176,6 +176,37 @@ def test_web_agent_e2e_pipeline_no_llm(monkeypatch, tmp_path):
             f"输出文本前500字：{all_text[:500]}"
         )
 
+    # ── 7. Position verification: content NOT in label cells ──
+    from teacher_agent.docx_grid import parse_table_grid
+    for t_idx, table in enumerate(doc.tables):
+        grid = parse_table_grid(table)
+        for ri, row_grid in enumerate(grid):
+            for gc, gcell in enumerate(row_grid):
+                if gcell is None or gcell.grid_col != gc:
+                    continue
+                t = gcell.text
+                if t.strip() == "主要教学内容":
+                    assert "这是主要教学内容正文" not in t, (
+                        f"Table{t_idx} Row{ri} Col{gc}: teaching_process leaked into label cell"
+                    )
+                if t.strip() == "教学方法的运用":
+                    assert "这是教学方法正文" not in t, (
+                        f"Table{t_idx} Row{ri} Col{gc}: teaching_method leaked into label cell"
+                    )
+
+    # Verify from template_analysis that targets are next-row
+    analysis = result2.state.template_analysis or {}
+    for f, label_text in [("teaching_process", "主要教学内容"), ("teaching_method", "教学方法的运用")]:
+        targets = analysis.get("table_mappings", {}).get(f, [])
+        for t in targets:
+            if t.get("label", "").replace(" ", "").replace("\n", "") == label_text:
+                assert t["row"] > t["label_row"], (
+                    f"E2E position: {f} target_row({t['row']}) must be > label_row({t['label_row']})"
+                )
+                assert t.get("target_type") == "next_row_cell", (
+                    f"E2E position: {f} target_type={t.get('target_type')}, expected next_row_cell"
+                )
+
     print(f"\n✅ E2E PASS: session={state.session_id}, output={output_name}")
     print(f"   docx size={docx_path.stat().st_size} bytes")
     print(f"   fields={len(FIXED_FIELDS)}, filled_non_empty={result2.state.fields and len(result2.state.fields)}")
