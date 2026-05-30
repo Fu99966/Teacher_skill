@@ -196,6 +196,17 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             self._send(*_json_bytes({"ok": True}))
             return
 
+        # ── Agent GET routes ──
+        agent_get_match = re.match(r"^/api/agent/([^/]+)$", path)
+        if agent_get_match:
+            try:
+                self._handle_agent_get(agent_get_match.group(1))
+            except KeyError:
+                self._send(*_json_bytes({"error": "Session not found"}, HTTPStatus.NOT_FOUND))
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
         self._send(*_json_bytes({"error": "页面不存在"}, HTTPStatus.NOT_FOUND))
 
     def do_HEAD(self) -> None:
@@ -316,16 +327,6 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if agent_start_match:
             try:
                 self._handle_agent_start()
-            except Exception as exc:
-                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
-            return
-
-        agent_get_match = re.match(r"^/api/agent/([^/]+)$", parsed.path)
-        if agent_get_match and self.command == "GET":
-            try:
-                self._handle_agent_get(agent_get_match.group(1))
-            except KeyError:
-                self._send(*_json_bytes({"error": "Session not found"}, HTTPStatus.NOT_FOUND))
             except Exception as exc:
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
@@ -547,7 +548,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             missing_fields=[], confidence=0.9, notes=[],
         )
         group = build_graph(task)
-        result = executor.continue_from_gate(group, state)
+        result = executor.continue_after_review(group, state)
         self._send(*_json_bytes(result.to_dict()))
 
     def _handle_agent_cancel(self, session_id: str) -> None:
@@ -854,67 +855,86 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             return
 
         lesson_request = LessonRequest(
-            task.subject,
-            task.grade,
-            task.title,
-            task.class_hour,
-            material or agent_request,
-            task.class_type,
-            task.teaching_style,
-            task.student_level,
-            task.generation_depth,
-            strict_ai,
-            creative_mode,
+            task.subject, task.grade, task.title,
+            task.class_hour, material or agent_request,
+            task.class_type, task.teaching_style,
+            task.student_level, task.generation_depth,
+            strict_ai, creative_mode,
         )
-        context = {
-            "agent_task": task,
-            "lesson_request": lesson_request,
-            "template_path": template_path,
-            "template_id": _template_id_for(template_path),
-            "template_analysis": template_analysis,
-        }
-        registry = build_lesson_tool_registry(
-            output_dir=OUTPUT_DIR,
-            preview_dir=PREVIEW_DIR,
-            history_db=HISTORY_DB,
-            memory_db=AGENT_MEMORY_DB,
-        )
-        execution = AgentExecutor(registry).run(plan, context)
-        draft_result = context.get("draft_result") or {}
-        export_result = context.get("export_result") or {}
+        # ── Delegate to new Agent state machine ──
+        import uuid
+        from .agent_core.checkpoint import AgentCheckpointStore
+        from .agent_core.state import AgentRunState
+        from .agent_core.tool_registry import build_agent_tool_registry
+        from .agent_core.graph_planner import build_graph as build_agent_graph
+        from .agent_core.executor import AgentExecutor
 
-        payload = {
+        task_dict = task.to_dict()
+        task_dict["material"] = material or agent_request
+        session_id = uuid.uuid4().hex[:12]
+
+        state = AgentRunState(
+            session_id=session_id, status="initialized", task=task_dict,
+            current_node="", next_action="", template_path=str(template_path),
+            template_id=_template_id_for(template_path), template_analysis=template_analysis,
+        )
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        registry = build_agent_tool_registry(
+            output_dir=OUTPUT_DIR, preview_dir=PREVIEW_DIR,
+            history_db=HISTORY_DB, memory_db=AGENT_MEMORY_DB,
+        )
+        checkpoint = AgentCheckpointStore(OUTPUT_DIR)
+        executor = AgentExecutor(registry, checkpoint)
+        agent_graph = build_agent_graph(task)
+        result = executor.run(agent_graph, state)
+
+        export_result = result.state.export_result or {}
+        draft_result: dict[str, Any] = {
+            "fields": result.state.fields or {},
+            "generation_backend": "agent",
+            "review_report": result.state.review_report,
+        }
+
+        payload: dict[str, Any] = {
             **draft_result,
-            "error": (context.get("llm_error") or {}).get("message") if context.get("llm_error") else None,
-            "llm_error": context.get("llm_error"),
-            "fields": context.get("fields") or draft_result.get("fields") or {},
+            "session_id": session_id,
+            "status": result.status,
+            "next_action": result.next_action,
+            "fields": result.state.fields or {},
             "template_fields": template_analysis["mapped_fields"],
-            "template_analysis": export_result.get("template_analysis") or draft_result.get("template_analysis") or template_analysis,
+            "template_analysis": export_result.get("template_analysis") or template_analysis,
             "template_id": _template_id_for(template_path),
             "agent_task": task.to_dict(),
-            "agent_plan": [step.to_dict() for step in execution.plan],
-            "agent_failed": execution.failed,
-            "evaluation_report": context.get("evaluation_report"),
+            "agent_trace": result.state.trace,
+            "agent_failed": result.failed,
+            "evaluation_report": result.state.evaluation_report,
             "output_name": export_result.get("output_name"),
             "download_url": export_result.get("download_url"),
             "preview_url": export_result.get("preview_url"),
             "fill_report": export_result.get("fill_report"),
-            "workflow_trace": context.get("workflow_trace") or draft_result.get("workflow_trace") or [],
-            "history_item": context.get("history_item"),
+            "workflow_trace": result.state.trace,
             "template_mode": actual_template_mode,
             "is_generic_material": is_generic_material,
             "llm_status": check_generation_health(probe=False).to_dict(),
-            "quality_controls": draft_result.get("quality_controls") or {},
+            "mode": actual_template_mode,
+            "visible_sections": ["fields", "trace", "download"],
+            "technical_details_available": True,
             "beginner_summary": _beginner_summary(
-                evaluation_report=context.get("evaluation_report"),
+                evaluation_report=result.state.evaluation_report,
                 is_generic_material=is_generic_material,
                 template_mode=actual_template_mode,
             ),
+            "professional_diagnostics": {
+                "table_mappings": template_analysis.get("table_mappings", {}),
+                "field_write_counts": (export_result.get("fill_report") or {}).get("field_write_counts", {}),
+                "template_errors": template_analysis.get("errors", []),
+            },
         }
-        if context.get("llm_error"):
-            self._send(*_json_bytes(payload, HTTPStatus.BAD_GATEWAY))
-            return
-        self._send(*_json_bytes(payload, HTTPStatus.INTERNAL_SERVER_ERROR if execution.failed else HTTPStatus.OK))
+        if result.failed:
+            self._send(*_json_bytes(payload, HTTPStatus.INTERNAL_SERVER_ERROR))
+        else:
+            self._send(*_json_bytes(payload, HTTPStatus.OK))
 
     def _handle_export(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0") or "0")

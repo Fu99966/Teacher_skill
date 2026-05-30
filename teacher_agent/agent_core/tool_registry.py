@@ -34,6 +34,19 @@ def build_agent_tool_registry(
         state = _st(context)
         analysis = analyze_template(Path(state.template_path or "."))
         state.template_analysis = analysis
+
+        # ── TemplateProfile integration ──
+        from ...template_profile import TemplateProfileStore
+        from pathlib import Path as _Path
+        profile_store = TemplateProfileStore(_Path(output_dir) if output_dir else _Path("outputs"))
+        profile = profile_store.get_or_create(
+            state.template_id or "unknown", analysis
+        )
+        known = profile.get("last_successful_fill")
+        if known and known.get("filled_non_empty_count", 0) > 0:
+            state.warnings.append("已加载该模板的历史成功映射记录。")
+        state.template_profile = profile
+
         state.status = "template_diagnosed"
         state.artifacts.append(AgentArtifact(
             name="template_analysis", kind="json",
@@ -181,6 +194,22 @@ def build_agent_tool_registry(
         lines.append("## 建议")
         lines.append("请检查下载的 Word 教案中每个字段是否填写到正确位置。如发现问题，可重新上传模板生成。")
         state.teacher_report = {"summary": "\n".join(lines), "passed": passed}
+
+        # ── Save successful mapping to TemplateProfile ──
+        from ...template_profile import TemplateProfileStore
+        from pathlib import Path as _Path
+        fr = (state.export_result or {}).get("fill_report", {})
+        if passed and fr.get("filled_non_empty_count", 0) > 0:
+            try:
+                profile_store = TemplateProfileStore(_Path(output_dir) if output_dir else _Path("outputs"))
+                profile_store.save_successful_mapping(
+                    state.template_id or "unknown",
+                    (state.template_analysis or {}).get("table_mappings", {}),
+                    fr,
+                )
+            except Exception:
+                pass
+
         return {"report_generated": True}
 
     registry.register("generate_teacher_report", teacher_report_tool, ToolSpec(
