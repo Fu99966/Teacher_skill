@@ -364,12 +364,21 @@ document.getElementById('btn-step3-write').addEventListener('click',async functi
 
     // Professional mode extras
     if(isPro){
-      var extras='<div style="margin-top:12px;padding:10px;background:#fffbeb;border-radius:6px;text-align:left;font-size:.78rem;border:1px solid #fde68a;">';
-      extras+='<strong>🔬 专业诊断</strong><br>';
-      extras+='fill_report: '+JSON.stringify(fr).slice(0,300)+'...<br>';
+      var extras='<div id="pro-diag" style="margin-top:12px;padding:10px;background:#fffbeb;border-radius:6px;text-align:left;font-size:.78rem;border:1px solid #fde68a;">';
+      extras+='<strong style="cursor:pointer;user-select:none;" onclick="var d=document.getElementById(\'pro-detail\');d.style.display=d.style.display===\'none\'?\'\':\'none\';this.textContent=d.style.display===\'none\'?\'🔬 专业诊断 ▶\':\'🔬 专业诊断 ▼\';">🔬 专业诊断 ▼</strong>';
+      extras+='<div id="pro-detail" style="margin-top:8px;">';
+      extras+='<p><strong>fill_report (完整JSON):</strong></p>';
+      extras+='<pre style="background:#1e293b;color:#e2e8f0;padding:8px;border-radius:4px;overflow:auto;max-height:200px;font-size:.7rem;">'+JSON.stringify(fr,null,2)+'</pre>';
       var ta=data.template_analysis||state.templateAnalysis||{};
-      extras+='template_analysis: '+(ta.fillable_count||'?')+' fields, mode='+(ta.mode||'?');
-      extras+='</div>';
+      extras+='<p style="margin-top:8px;"><strong>template_analysis (完整JSON):</strong></p>';
+      extras+='<pre style="background:#1e293b;color:#e2e8f0;padding:8px;border-radius:4px;overflow:auto;max-height:200px;font-size:.7rem;">'+JSON.stringify(ta,null,2)+'</pre>';
+      extras+='<p style="margin-top:8px;"><strong>field_write_counts:</strong> '+JSON.stringify(fwc)+'</p>';
+      var tm=ta.table_mappings||{};
+      extras+='<p style="margin-top:4px;"><strong>table_mappings:</strong> '+Object.keys(tm).length+' fields</p>';
+      var errs=errors.length||fr.errors?fr.errors:[]||[];
+      extras+='<p style="margin-top:4px;"><strong>errors/warnings:</strong> '+(errs.length?errs.join('; '):'无')+'</p>';
+      extras+='<p style="margin-top:8px;"><a href="/download/sample-template" class="btn btn-secondary" style="font-size:.75rem;">⬇ 下载诊断包</a></p>';
+      extras+='</div></div>';
       reportEl.innerHTML+=extras;
     }
 
@@ -384,33 +393,48 @@ document.getElementById('btn-step3-write').addEventListener('click',async functi
 });
 document.getElementById('btn-step4-redo').addEventListener('click',function(){goStep(3);});
 
-fetch('/api/model/health?probe=1').then(function(r){return r.json();}).then(function(d){
+// ── Two-phase model health: fast config check first, then probe ──
+(function initModelHealth(){
   var bar = document.getElementById('model-status-bar');
-  var statusBadge = document.getElementById('llm-status');
-  var et = d.error_type || '';
-  if (d.status === 'ok') {
-    statusBadge.textContent = 'AI 可用';
-  } else if (d.status === 'error' && et === 'auth_failed') {
-    statusBadge.textContent = 'API Key 无效';
-    bar.className = ''; bar.style.background='#fef2f2'; bar.style.color='#dc2626';
-    bar.innerHTML = '🔴 API Key 无效，请检查 .env 中的 DEEPSEEK_API_KEY。将使用本地示例内容生成初稿。';
-  } else if (d.status === 'error' && et === 'network_error') {
-    statusBadge.textContent = '网络连接失败';
-    bar.className = ''; bar.style.background='#fef3c7'; bar.style.color='#92400e';
-    bar.innerHTML = '⚠️ 无法连接 DeepSeek 服务器，将使用本地示例内容生成初稿。';
-  } else if (d.status === 'configured') {
-    statusBadge.textContent = '已配置，未验证';
-  } else {
-    statusBadge.textContent = 'AI 未配置，将使用本地示例内容';
-    bar.className = ''; bar.style.background='#eef2ff'; bar.style.color='#4f46e5';
-    bar.innerHTML = 'ℹ️ 未配置 AI 模型，将使用本地示例内容生成初稿。你可以编辑字段后再导出 Word。';
-  }
-}).catch(function(){
-  document.getElementById('llm-status').textContent = '检查失败';
-  var bar = document.getElementById('model-status-bar');
-  bar.className = ''; bar.style.background='#eef2ff'; bar.style.color='#4f46e5';
-  bar.innerHTML = 'ℹ️ 无法检测模型状态，将使用本地示例内容。你可以编辑字段后再导出 Word。';
-});
+  var badge = document.getElementById('llm-status');
+
+  // Phase 1: fast config check (no probe)
+  fetch('/api/model/health').then(function(r){return r.json();}).then(function(d){
+    if (d.configured) {
+      badge.textContent = '已配置，未验证';
+    } else {
+      badge.textContent = '未配置';
+      bar.className = ''; bar.style.background='#eef2ff'; bar.style.color='#4f46e5';
+      bar.innerHTML = 'ℹ️ 未配置 AI 模型，将使用本地示例内容生成初稿。你可以编辑字段后再导出 Word。';
+    }
+  }).catch(function(){
+    badge.textContent = '检查中';
+  });
+
+  // Phase 2: real probe in background
+  fetch('/api/model/health?probe=1').then(function(r){return r.json();}).then(function(d){
+    var et = d.error_type || '';
+    if (d.status === 'ok') {
+      badge.textContent = 'AI 可用';
+    } else if (d.status === 'error' && et === 'auth_failed') {
+      badge.textContent = 'API Key 无效';
+      bar.className = ''; bar.style.background='#fef2f2'; bar.style.color='#dc2626';
+      bar.innerHTML = '🔴 API Key 无效，请检查 .env 中的 DEEPSEEK_API_KEY。将使用本地示例内容生成初稿。';
+    } else if (d.status === 'error' && et === 'network_error') {
+      badge.textContent = '网络连接失败';
+      bar.className = ''; bar.style.background='#fef3c7'; bar.style.color='#92400e';
+      bar.innerHTML = '⚠️ 无法连接 DeepSeek 服务器，将使用本地示例内容生成初稿。';
+    } else if (d.status === 'configured') {
+      badge.textContent = '已配置，未验证';
+    } else {
+      badge.textContent = 'AI 未配置，将使用本地示例内容';
+      bar.className = ''; bar.style.background='#eef2ff'; bar.style.color='#4f46e5';
+      bar.innerHTML = 'ℹ️ 未配置 AI 模型，将使用本地示例内容生成初稿。你可以编辑字段后再导出 Word。';
+    }
+  }).catch(function(){
+    if (badge.textContent !== '未配置') badge.textContent = '探测失败';
+  });
+})();
 
 // ── Mode toggle ──
 document.getElementById('mode-toggle').addEventListener('click', function(){
