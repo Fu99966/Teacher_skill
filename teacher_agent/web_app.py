@@ -31,6 +31,33 @@ from .template_parser import analyze_template
 from .workflow import LessonRequest, TeacherWorkflow, build_workflow_schema
 
 
+def _create_placeholder_template(path: Path) -> None:
+    """Generate a minimal docx with standard {{placeholders}}."""
+    if path.exists():
+        return
+    from docx import Document
+    from docx.table import _Cell as _DCell
+    doc = Document()
+    doc.add_heading("教案模板", 0)
+    doc.add_paragraph("请替换以下占位符：")
+
+    fields = [
+        ("课题", "{{lesson_title}}"),
+        ("教学目的", "{{teaching_goals}}"),
+        ("重点难点", "{{teaching_key_difficult}}"),
+        ("主要教学内容", "{{teaching_process}}"),
+        ("教学方法的运用", "{{teaching_method}}"),
+        ("作业", "{{homework}}"),
+        ("课后小记", "{{reflection}}"),
+    ]
+    table = doc.add_table(rows=len(fields), cols=2, style="Table Grid")
+    for i, (label, placeholder) in enumerate(fields):
+        table.cell(i, 0).text = label
+        table.cell(i, 1).text = placeholder
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(path))
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = PROJECT_ROOT / "web"
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
@@ -60,6 +87,14 @@ def _form_value(form: cgi.FieldStorage, name: str, default: str = "") -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _parse_probe(query: str) -> bool:
+    """Parse ?probe=1/true/yes/on from query string using parse_qs."""
+    from urllib.parse import parse_qs as _parse_qs
+    params = _parse_qs(query or "")
+    val = (params.get("probe") or [""])[0].strip().lower()
+    return val in ("1", "true", "yes", "on")
 
 
 def _form_bool(form: cgi.FieldStorage, name: str, default: bool = False) -> bool:
@@ -172,7 +207,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/llm-health":
-            probe = "probe=1" in (parsed.query or "")
+            probe = _parse_probe(parsed.query)
             self._send(*_json_bytes({"llm": check_generation_health(probe=probe).to_dict()}))
             return
 
@@ -180,6 +215,12 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             if not SAMPLE_TEMPLATE.exists():
                 create_sample_template(SAMPLE_TEMPLATE)
             self._send_file(SAMPLE_TEMPLATE, as_attachment=True)
+            return
+
+        if path == "/download/placeholder-template":
+            pt_path = OUTPUT_DIR / "placeholder_template.docx"
+            _create_placeholder_template(pt_path)
+            self._send_file(pt_path, as_attachment=True)
             return
 
         if path.startswith("/download/"):
@@ -198,7 +239,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         if path == "/api/model/health":
             from .deepseek_client import check_deepseek_health
-            probe = "probe=1" in (parsed.query or "")
+            probe = _parse_probe(parsed.query)
             ds = check_deepseek_health(probe=probe)
             self._send(*_json_bytes({
                 "configured": ds.configured,

@@ -85,7 +85,10 @@ textarea { resize: vertical; min-height: 80px; }
 
 <div class="header">
   <h1>📝 教案助手 Teacher Skill</h1>
-  <div class="badge" id="llm-status">检查中</div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span style="font-size:.75rem;color:rgba(255,255,255,.7);cursor:pointer;user-select:none;" id="mode-toggle" title="切换新手/专业模式">🔰 新手模式</span>
+    <div class="badge" id="llm-status">检查中</div>
+  </div>
 </div>
 
 <div class="main">
@@ -111,7 +114,7 @@ textarea { resize: vertical; min-height: 80px; }
     <div class="file-drop" id="file-drop">
       <div class="icon">📄</div>
       <div class="label">点击或拖拽上传 .docx 模板</div>
-      <div class="hint">支持 {{占位符}} 和表格标签两种模板格式</div>
+      <div class="hint">支持 {{占位符}} 和表格标签两种模板格式 · <a href="/download/placeholder-template" style="color:#667eea;">下载标准占位符模板</a></div>
       <input type="file" id="template-file" accept=".docx" />
     </div>
     <div id="file-info" class="hidden"></div>
@@ -157,6 +160,9 @@ textarea { resize: vertical; min-height: 80px; }
   <div class="card hidden" id="step3">
     <h2>第 3 步：预览和编辑教案内容</h2>
     <p class="subtitle">检查每个字段的内容，需要修改的直接在文本框里编辑。你可以先修改内容，再导出 Word。所有修改都会写入 Word。</p>
+    <div style="margin-bottom:16px;padding:10px 14px;background:#eef2ff;border-radius:8px;font-size:.85rem;color:#4f46e5;">
+      💡 请先检查并修改 AI 生成内容，再导出 Word。你修改后的内容会写入最终教案。
+    </div>
     <div id="field-editor" class="field-list"></div>
     <div class="actions">
       <button class="btn btn-secondary" id="btn-step3-back">← 返回修改信息</button>
@@ -181,6 +187,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 <script>
 let state = { step: 1, templateFile: null, templateAnalysis: null, fields: {}, downloadUrl: '' };
+let isPro = false;
 
 function toast(msg, type) {
   var el = document.createElement('div');
@@ -325,18 +332,47 @@ document.getElementById('btn-step3-write').addEventListener('click',async functi
     state.downloadUrl=data.download_url;
     if(errors.length){show('fill-error');document.getElementById('fill-error').textContent='⚠️ '+errors.join('; ');}
     else{hide('fill-error');}
-    var checkHtml='<p style="font-size:1.2rem;color:#10b981;margin-bottom:8px;">✅ 写入成功！</p>';
-    checkHtml+='<ul class="checks">';
-    checkHtml+='<li class="pass">✓ 已填充字段：'+ne+' 个（共写入 '+wc+' 个表格位置）</li>';
-    checkHtml+='<li class="'+(errors.length?'fail':'pass')+'">'+(errors.length?'✗ 有问题：'+errors.length+' 条':'✓ 填充错误：无')+'</li>';
-    checkHtml+='<li class="pass">✓ 已填字段：'+filled.join('、')+'</li>';
-    checkHtml+='</ul>';
-    // teacher_report summary
-    var tr = data.teacher_report || {};
-    if (tr.summary) {
-      checkHtml += '<div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:6px;text-align:left;font-size:.85rem;white-space:pre-wrap;">'+tr.summary+'</div>';
+
+    var fwc=fr.field_write_counts||{}, fields=state.fields||{};
+    var checklistItems=[
+      {label:'课题', key:'lesson_title'},
+      {label:'教学目的', key:'teaching_goals'},
+      {label:'重点难点', key:'teaching_key_difficult'},
+      {label:'主要教学内容', key:'teaching_process'},
+      {label:'教学方法', key:'teaching_method'},
+      {label:'作业', key:'homework'},
+      {label:'课后小记', key:'reflection'},
+      {label:'Word 已生成', key:'_docx'},
+    ];
+    var ch='<p style="font-size:1.2rem;color:#10b981;margin-bottom:12px;">✅ 写入成功！</p>';
+    ch+='<ul class="checks" style="display:inline-block;text-align:left;min-width:280px;">';
+    checklistItems.forEach(function(item){
+      var ok;
+      if(item.key==='_docx') ok=!!data.download_url;
+      else ok=!!(fields[item.key]||'').trim();
+      ch+='<li class="'+(ok?'pass':'fail')+'">'+(ok?'✓':'✗')+' '+item.label+(ok?'：已填写':'：未填写')+'</li>';
+    });
+    ch+='<li class="pass" style="border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px;">✓ 共写入 '+wc+' 个表格位置（'+ne+' 个非空字段）</li>';
+    ch+='</ul>';
+
+    // teacher_report
+    var tr=data.teacher_report||{};
+    if(tr.summary){
+      ch+='<div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:6px;text-align:left;font-size:.85rem;white-space:pre-wrap;">'+tr.summary+'</div>';
     }
-    reportEl.innerHTML=checkHtml;
+    reportEl.innerHTML=ch;
+
+    // Professional mode extras
+    if(isPro){
+      var extras='<div style="margin-top:12px;padding:10px;background:#fffbeb;border-radius:6px;text-align:left;font-size:.78rem;border:1px solid #fde68a;">';
+      extras+='<strong>🔬 专业诊断</strong><br>';
+      extras+='fill_report: '+JSON.stringify(fr).slice(0,300)+'...<br>';
+      var ta=data.template_analysis||state.templateAnalysis||{};
+      extras+='template_analysis: '+(ta.fillable_count||'?')+' fields, mode='+(ta.mode||'?');
+      extras+='</div>';
+      reportEl.innerHTML+=extras;
+    }
+
     document.getElementById('download-link').href=data.download_url;
     show('download-actions');
     toast('教案已生成！','success');
@@ -350,16 +386,22 @@ document.getElementById('btn-step4-redo').addEventListener('click',function(){go
 
 fetch('/api/model/health?probe=1').then(function(r){return r.json();}).then(function(d){
   var bar = document.getElementById('model-status-bar');
+  var statusBadge = document.getElementById('llm-status');
+  var et = d.error_type || '';
   if (d.status === 'ok') {
-    document.getElementById('llm-status').textContent = 'AI 就绪';
-  } else if (d.status === 'error') {
-    document.getElementById('llm-status').textContent = 'AI 不可用';
+    statusBadge.textContent = 'AI 可用';
+  } else if (d.status === 'error' && et === 'auth_failed') {
+    statusBadge.textContent = 'API Key 无效';
+    bar.className = ''; bar.style.background='#fef2f2'; bar.style.color='#dc2626';
+    bar.innerHTML = '🔴 API Key 无效，请检查 .env 中的 DEEPSEEK_API_KEY。将使用本地示例内容生成初稿。';
+  } else if (d.status === 'error' && et === 'network_error') {
+    statusBadge.textContent = '网络连接失败';
     bar.className = ''; bar.style.background='#fef3c7'; bar.style.color='#92400e';
-    bar.innerHTML = '⚠️ 模型配置存在，但当前不可用（'+d.error_type+'）。将使用本地示例内容生成初稿。你可以编辑后再导出。';
+    bar.innerHTML = '⚠️ 无法连接 DeepSeek 服务器，将使用本地示例内容生成初稿。';
   } else if (d.status === 'configured') {
-    document.getElementById('llm-status').textContent = 'AI 已配置';
+    statusBadge.textContent = '已配置，未验证';
   } else {
-    document.getElementById('llm-status').textContent = 'AI 未配置';
+    statusBadge.textContent = 'AI 未配置，将使用本地示例内容';
     bar.className = ''; bar.style.background='#eef2ff'; bar.style.color='#4f46e5';
     bar.innerHTML = 'ℹ️ 未配置 AI 模型，将使用本地示例内容生成初稿。你可以编辑字段后再导出 Word。';
   }
@@ -368,6 +410,15 @@ fetch('/api/model/health?probe=1').then(function(r){return r.json();}).then(func
   var bar = document.getElementById('model-status-bar');
   bar.className = ''; bar.style.background='#eef2ff'; bar.style.color='#4f46e5';
   bar.innerHTML = 'ℹ️ 无法检测模型状态，将使用本地示例内容。你可以编辑字段后再导出 Word。';
+});
+
+// ── Mode toggle ──
+document.getElementById('mode-toggle').addEventListener('click', function(){
+  isPro = !isPro;
+  this.textContent = isPro ? '🔬 专业模式' : '🔰 新手模式';
+  // Show/hide diagnostic info in step 1
+  var diag = document.querySelector('.diagnose-detail');
+  if (diag) diag.style.display = isPro ? '' : 'none';
 });
 </script>
 </body>
