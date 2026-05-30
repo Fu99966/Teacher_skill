@@ -124,6 +124,24 @@ def build_agent_tool_registry(
     def export_docx_tool(context: dict[str, Any]) -> dict[str, Any]:
         state = _st(context)
         tp = Path(state.template_path or ".")
+
+        # ── Validate required fields before export ──
+        template_analysis = state.template_analysis or {}
+        required_fields = template_analysis.get("required_fields", [])
+        missing_required: list[str] = []
+        for rf in required_fields:
+            val = str(state.fields.get(rf, "")).strip() if state.fields else ""
+            if not val:
+                missing_required.append(rf)
+        if missing_required:
+            state.status = "failed"
+            state.errors.append(
+                f"required_field_empty: {', '.join(missing_required)} 为空，请补充后再导出。"
+            )
+            raise ValueError(
+                f"必填字段为空: {', '.join(missing_required)}。请返回编辑页补充内容后再导出 Word。"
+            )
+
         workflow = TeacherWorkflow()
         export = workflow.export_document(state.fields or {}, tp, output_dir, preview_dir)
         state.export_result = export

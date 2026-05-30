@@ -221,6 +221,7 @@ def _scan_table_labels(
                 "row": effective_row, "grid_col": tgt_col, "grid_span": tgt_span,
                 "physical_col": tgt_physical, "col": tgt_physical,
                 "label": text, "target_text": effective_target_text,
+                "required": field in REQUIRED_FIELDS,
             })
             field_context.setdefault(field, []).append({
                 "source": "table_label", "location": location, "section": section,

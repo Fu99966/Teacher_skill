@@ -21,11 +21,20 @@ FIXED_FIELDS = {
     "teaching_goals": "理解传感器的基本概念、分类和典型应用。",
     "teaching_key_difficult": "重点：传感器分类与工作原理。难点：传感器信号与物联网系统的关系。",
     "teaching_aids": "PPT、传感器实物",
-    "teaching_process": "一、导入新课：展示传感器图片，提问生活中常见传感器。\n二、探究新知：讲解传感器定义、分类和工作原理。\n三、小组讨论：各组分析给定场景中使用的传感器类型。\n四、巩固练习：完成传感器分类任务单。\n五、课堂总结：梳理传感器知识框架。",
-    "teaching_method": "采用情境导入法、探究式学习、小组讨论法和演示教学法相结合的教学方式。教学过程中注重学生主体地位，通过创设情境、组织活动、引导探究和即时反馈，帮助学生理解《传感器基础》的核心内容。",
+    "teaching_process": "一、导入新课：展示传感器图片，提问生活中常见传感器。\n二、项目探究：各组设计一个传感器应用方案。\n三、演示实验：教师演示传感器工作原理。\n四、小组讨论：分析给定场景中使用的传感器类型。\n五、巡回指导：教师巡视各组，及时纠偏。\n六、展示评价：各组展示方案，师生互评。\n七、巩固练习：完成传感器分类任务单。\n八、课堂总结：梳理传感器知识框架。",
+    "teaching_method": "采用情境导入法、项目教学法、演示教学法、小组讨论法和案例分析法相结合的教学方式。教学过程中注重学生主体地位，通过创设情境、组织活动、引导探究和即时反馈，帮助学生理解《传感器基础》的核心内容。",
     "homework": "完成传感器分类练习题，观察家中使用的传感器并记录。",
     "reflection": "课后关注学生是否掌握传感器应用。",
 }
+
+# teaching_process with rich method keywords for derivation testing
+PROCESS_WITH_METHODS = (
+    "一、项目导入：展示传感器在物联网项目中的应用案例。\n"
+    "二、演示实验：教师演示常用传感器模块。\n"
+    "三、小组讨论：各组设计传感器应用场景。\n"
+    "四、巡回指导：教师巡视，针对各组问题进行指导。\n"
+    "五、展示评价：各组展示方案，师生共同评价。"
+)
 
 
 def _mock_draft_fields(*args, **kwargs):
@@ -49,7 +58,24 @@ def test_template_analysis_marks_teaching_method_required():
     )
 
 
-# ── Test 2: _derive_teaching_method_from_process works ──
+# ── Test 2: table_mappings targets have required=true ──
+
+def test_teaching_method_mapping_has_required_true():
+    """Every teaching_method target in table_mappings must have required=true."""
+    from teacher_agent.template_parser import analyze_template
+
+    analysis = analyze_template(REAL_TEMPLATE)
+    mappings = analysis.get("table_mappings", {}).get("teaching_method", [])
+
+    assert len(mappings) > 0, "No teaching_method targets in table_mappings"
+
+    for i, tgt in enumerate(mappings):
+        assert tgt.get("required") is True, (
+            f"teaching_method target {i} missing required=true: {tgt}"
+        )
+
+
+# ── Test 3: _derive_teaching_method_from_process works ──
 
 def test_derive_teaching_method_from_process():
     """Fallback derivation from teaching_process text."""
@@ -64,56 +90,61 @@ def test_derive_teaching_method_from_process():
     )
 
 
-# ── Test 3: backfill fills empty teaching_method ──
+# ── Test 4: backfill PREFERS derived teaching_method from process ──
 
-def test_backfill_fills_empty_teaching_method():
-    """When teaching_method is empty, backfill_empty_fields_with_local_fallback fills it."""
+def test_backfill_prefers_derived_teaching_method_from_process():
+    """When teaching_method is empty and teaching_process has rich keywords,
+    backfill must derive from process, containing matching method names."""
     from teacher_agent.lesson_generator import backfill_empty_fields_with_local_fallback
 
     fields = dict(FIXED_FIELDS)
-    fields["teaching_method"] = ""  # empty on purpose
+    fields["teaching_method"] = ""
+    fields["teaching_process"] = PROCESS_WITH_METHODS
 
     result = backfill_empty_fields_with_local_fallback(
         fields, subject="物联网", grade="24物联网1班", title="传感器基础",
         material="", class_hour="2课时", required_fields=list(FIXED_FIELDS.keys()),
     )
 
-    assert result.get("teaching_method", "").strip(), (
-        "teaching_method should not be empty after backfill"
+    tm = result.get("teaching_method", "")
+    assert tm.strip(), "teaching_method should not be empty after backfill"
+
+    # Must include at least 2 method names derived from process keywords
+    required_methods = ["项目教学法", "演示教学法", "小组讨论法"]
+    matched = [m for m in required_methods if m in tm]
+    assert len(matched) >= 2, (
+        f"teaching_method must contain >=2 derived methods from {required_methods}, got: {tm[:120]}"
     )
-    assert len(result["teaching_method"]) > 20
 
 
-# ── Test 4: step4-fill blocks empty teaching_method ──
+# ── Test 5: step4-fill blocks empty teaching_method ──
 
-def test_step4_fill_blocks_empty_teaching_method(tmp_path, monkeypatch):
-    """When teaching_method is empty, _handle_step4_fill returns 422."""
-    from teacher_agent.docx_filler import fill_docx_template
-
-    # Set up a valid fill so the call reaches validation before writing
+def test_step4_fill_blocks_empty_teaching_method(tmp_path):
+    """When teaching_method is required and empty, _handle_step4_fill must return 422."""
     import shutil
+    from teacher_agent.template_parser import analyze_template
+
     tmpl_copy = tmp_path / "教案模板.docx"
     shutil.copy(REAL_TEMPLATE, tmpl_copy)
 
-    fields = dict(FIXED_FIELDS)
-    fields["teaching_method"] = ""
-
-    # Direct validation test — simulate the API logic
-    from teacher_agent.template_parser import analyze_template
     analysis = analyze_template(str(tmpl_copy))
     required_fields = analysis.get("required_fields", [])
+
+    fields = dict(FIXED_FIELDS)
+    fields["teaching_method"] = ""
     tm_value = str(fields.get("teaching_method") or "").strip()
 
     if "teaching_method" in required_fields and not tm_value:
         assert True, "Correctly detected empty teaching_method when required"
     else:
-        pytest.fail(f"Should detect empty teaching_method: required={required_fields}, value={repr(tm_value)}")
+        pytest.fail(f"Should detect empty tm: required={required_fields}, value={repr(tm_value)}")
 
 
-# ── Test 5: full E2E with teaching_method written to both tables ──
+# ── Test 6: full E2E with teaching_method written to both tables ──
 
 def test_teaching_method_e2e_written_to_both_tables(monkeypatch, tmp_path):
-    """teaching_method must be written to both tables, field_write_counts >= 2."""
+    """teaching_method must be non-empty, written to both tables, field_write_counts >= 2.
+    NO skipping for default-footer.xml."""
     monkeypatch.setattr(
         "teacher_agent.lesson_generator.draft_lesson_document_fields_with_source",
         _mock_draft_fields,
@@ -129,12 +160,15 @@ def test_teaching_method_e2e_written_to_both_tables(monkeypatch, tmp_path):
     from teacher_agent.agent_core.tool_registry import build_agent_tool_registry
     from teacher_agent.agent_core.executor import AgentExecutor
     from teacher_agent.agent_core.task_router import AgentTask
+    from teacher_agent.template_parser import analyze_template
 
     output_dir = tmp_path / "outputs"
     reg = build_agent_tool_registry(output_dir=output_dir, preview_dir=output_dir,
                                      history_db=output_dir / "h.sqlite3", memory_db=output_dir / "m.sqlite3")
     ck = AgentCheckpointStore(tmp_path)
     exec1 = AgentExecutor(reg, ck)
+
+    template_analysis = analyze_template(REAL_TEMPLATE)
 
     task = AgentTask(
         raw_request="生成传感器基础教案",
@@ -147,19 +181,20 @@ def test_teaching_method_e2e_written_to_both_tables(monkeypatch, tmp_path):
         session_id="tm-test", status="initialized",
         task=task.to_dict(), current_node="", next_action="",
         template_path=str(REAL_TEMPLATE), template_id="tm-test",
+        template_analysis=template_analysis,
     )
 
     g = build_graph(task)
     res = exec1.run(g, state)
 
-    # Assert teaching_method is non-empty
+    # Step 1: teaching_method must be non-empty
     fields = res.state.fields or {}
     tm_value = str(fields.get("teaching_method") or "").strip()
     assert tm_value, (
         f"teaching_method is empty after agent run! Trace: {res.state.trace[-3:] if res.state.trace else 'none'}"
     )
 
-    # Continue through review gate
+    # Step 2: continue through review gate with explicit teaching_method
     fields = dict(res.state.fields or {})
     fields["teaching_method"] = FIXED_FIELDS["teaching_method"]
     ck.save(res.state)
@@ -167,20 +202,19 @@ def test_teaching_method_e2e_written_to_both_tables(monkeypatch, tmp_path):
     reloaded.fields = fields
     reloaded.status = "fields_generated"
     reloaded.teacher_edits = {}
+    reloaded.template_analysis = template_analysis  # MUST carry template_analysis
     ck.save(reloaded)
 
     g2 = build_graph(task)
     exec2 = AgentExecutor(reg, ck)
     res2 = exec2.continue_after_review(g2, reloaded)
 
-    assert res2.status == "completed" or "default-footer.xml" in str(res2.state.errors), (
-        f"Agent not completed: {res2.status}. Errors: {res2.state.errors}"
+    # Step 3: MUST be completed — NO skipping for default-footer.xml
+    assert res2.status == "completed", (
+        f"Agent MUST complete. Status={res2.status}, Errors={res2.state.errors}"
     )
-    if res2.status != "completed":
-        print(f"⚠️ pre-existing docx issue, skipping write verification")
-        return
 
-    # Verify field_write_counts
+    # Step 4: field_write_counts["teaching_method"] >= 2
     export = res2.state.export_result or {}
     fwc = (export.get("fill_report") or {}).get("field_write_counts", {})
     tm_writes = fwc.get("teaching_method", 0)
@@ -189,7 +223,7 @@ def test_teaching_method_e2e_written_to_both_tables(monkeypatch, tmp_path):
         f"teaching_method write count should be >= 2 (both tables), got {tm_writes}. fwc={fwc}"
     )
 
-    # Verify docx content
+    # Step 5: verify docx content in next-row cells
     output_name = export.get("output_name", "")
     assert output_name, "No output_name"
     docx_path = output_dir / output_name
@@ -199,16 +233,14 @@ def test_teaching_method_e2e_written_to_both_tables(monkeypatch, tmp_path):
     doc = Document(str(docx_path))
     from teacher_agent.docx_grid import parse_table_grid
 
-    tm_text = FIXED_FIELDS["teaching_method"]
     written_rows = 0
-    for t_idx, table in enumerate(doc.tables):
+    for table in doc.tables:
         grid = parse_table_grid(table)
         for ri, row_grid in enumerate(grid):
             for gc, gcell in enumerate(row_grid):
                 if gcell is None or gcell.grid_col != gc:
                     continue
                 if gcell.text.strip() == "教学方法的运用":
-                    # Check next row for the content
                     if ri + 1 < len(grid):
                         next_row = grid[ri + 1]
                         for ngc, ngcell in enumerate(next_row):
@@ -225,10 +257,11 @@ def test_teaching_method_e2e_written_to_both_tables(monkeypatch, tmp_path):
     print(f"\n✅ teaching_method E2E: writes={tm_writes}, content_rows={written_rows}")
 
 
-# ── Test 6: export fails cleanly when teaching_method is empty ──
+# ── Test 7: Agent fails cleanly when teaching_method is empty ──
 
 def test_export_fails_when_teaching_method_empty(monkeypatch, tmp_path):
-    """When teaching_method is empty, export must either fail or show warnings."""
+    """When teaching_method is empty, Agent must NOT reach completed;
+    evaluation_report.passed must be False or status != completed."""
     monkeypatch.setattr(
         "teacher_agent.lesson_generator.draft_lesson_document_fields_with_source",
         _mock_draft_fields,
@@ -244,11 +277,14 @@ def test_export_fails_when_teaching_method_empty(monkeypatch, tmp_path):
     from teacher_agent.agent_core.tool_registry import build_agent_tool_registry
     from teacher_agent.agent_core.executor import AgentExecutor
     from teacher_agent.agent_core.task_router import AgentTask
+    from teacher_agent.template_parser import analyze_template
 
     output_dir = tmp_path / "outputs"
     reg = build_agent_tool_registry(output_dir=output_dir, preview_dir=output_dir,
                                      history_db=output_dir / "h.sqlite3", memory_db=output_dir / "m.sqlite3")
     ck = AgentCheckpointStore(tmp_path)
+
+    template_analysis = analyze_template(REAL_TEMPLATE)
 
     task = AgentTask(
         raw_request="生成传感器基础教案",
@@ -261,6 +297,7 @@ def test_export_fails_when_teaching_method_empty(monkeypatch, tmp_path):
         session_id="tm-fail", status="initialized",
         task=task.to_dict(), current_node="", next_action="",
         template_path=str(REAL_TEMPLATE), template_id="tm-fail",
+        template_analysis=template_analysis,
     )
 
     g = build_graph(task)
@@ -275,31 +312,30 @@ def test_export_fails_when_teaching_method_empty(monkeypatch, tmp_path):
     reloaded.fields = fields
     reloaded.status = "fields_generated"
     reloaded.teacher_edits = {}
+    reloaded.template_analysis = template_analysis  # carry template_analysis
     ck.save(reloaded)
 
     g2 = build_graph(task)
     exec2 = AgentExecutor(reg, ck)
     res2 = exec2.continue_after_review(g2, reloaded)
 
-    # Export should either fail or have warnings about teaching_method
-    export = res2.state.export_result or {}
-    errors = res2.state.errors or []
-    warnings_list = res2.state.warnings or []
-    fwc = (export.get("fill_report") or {}).get("field_write_counts", {})
-
-    # teaching_method write count should be 0 (empty field not written)
-    tm_writes = fwc.get("teaching_method", 0)
-
-    # Either state contains warnings, or fill_report shows empty, or write count is 0
-    has_issue = (
-        not res2.status == "completed"
-        or any("teaching_method" in str(w).lower() or "教学方法" in str(w) for w in warnings_list)
-        or any("teaching_method" in str(e).lower() or "教学方法" in str(e) for e in errors)
-        or tm_writes == 0
-    )
-    assert has_issue, (
-        f"Expected export to fail or warn when teaching_method is empty. "
-        f"status={res2.status}, writes={tm_writes}, errors={errors}, warnings={warnings_list}"
+    # MUST NOT be completed — required field is empty
+    assert res2.status != "completed", (
+        f"Agent should NOT complete when teaching_method is empty. "
+        f"status={res2.status}, errors={res2.state.errors}"
     )
 
-    print(f"\n✅ Empty teaching_method test: status={res2.status}, writes={tm_writes}")
+    # Check errors contain teaching_method
+    all_errors = " ".join(res2.state.errors or [])
+    assert "teaching_method" in all_errors.lower() or "教学方法的运用" in all_errors or "教学方法" in all_errors, (
+        f"Errors must mention teaching_method. Got: {res2.state.errors}"
+    )
+
+    # Check evaluation_report not passed
+    eval_report = res2.state.evaluation_report or {}
+    if eval_report:
+        assert not eval_report.get("passed", True), (
+            f"evaluation_report.passed must be False when teaching_method empty"
+        )
+
+    print(f"\n✅ Empty teaching_method test: status={res2.status}, errors={res2.state.errors[:2]}")

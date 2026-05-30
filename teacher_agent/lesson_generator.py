@@ -154,6 +154,16 @@ def backfill_empty_fields_with_local_fallback(
 ) -> dict[str, str]:
     normalized_fields = _normalize_dynamic_fields(required_fields)
     result = coerce_dynamic_fields(fields if isinstance(fields, dict) else {}, normalized_fields)
+
+    # teaching_method: try deriving from teaching_process FIRST (before generic fallback)
+    if not _clean_text(result.get("teaching_method")) and _clean_text(result.get("teaching_process")):
+        derived = _derive_teaching_method_from_process(
+            result.get("teaching_method", ""), title, result["teaching_process"]
+        )
+        if derived.strip():
+            result["teaching_method"] = derived
+
+    # Then fill remaining empty fields with local fallback
     fallback = _local_fallback_fields(
         subject=subject,
         grade=grade,
@@ -165,12 +175,6 @@ def backfill_empty_fields_with_local_fallback(
     for field in normalized_fields:
         if not _clean_text(result.get(field)):
             result[field] = fallback.get(field, "")
-
-    # teaching_method intelligence: if still empty, generate from teaching_process
-    if not _clean_text(result.get("teaching_method")) and _clean_text(result.get("teaching_process")):
-        result["teaching_method"] = _derive_teaching_method_from_process(
-            result["teaching_method"], title, result["teaching_process"]
-        )
 
     return result
 
