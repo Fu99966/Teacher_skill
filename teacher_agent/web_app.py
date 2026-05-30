@@ -196,6 +196,19 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             self._send(*_json_bytes({"ok": True}))
             return
 
+        if path == "/api/model/health":
+            from .deepseek_client import check_deepseek_health
+            ds = check_deepseek_health(probe=False)
+            self._send(*_json_bytes({
+                "configured": ds.configured,
+                "provider": "deepseek",
+                "model": ds.model,
+                "status": ds.status,
+                "message": ds.message,
+                "base_url": ds.base_url,
+            }))
+            return
+
         # ── Agent GET routes ──
         agent_get_match = re.match(r"^/api/agent/([^/]+)$", path)
         if agent_get_match:
