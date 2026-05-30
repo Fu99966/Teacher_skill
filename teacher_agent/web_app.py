@@ -477,6 +477,21 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if not isinstance(fields, dict) or not fields:
             raise ValueError("fields_json 格式错误或为空")
         template_analysis = analyze_template(template_path)
+        required_fields = template_analysis.get("required_fields", [])
+        tm_value = str(fields.get("teaching_method") or "").strip()
+
+        # Validate teaching_method is non-empty
+        if "teaching_method" in required_fields and not tm_value:
+            self._send(*_json_bytes({
+                "error": "teaching_method_empty",
+                "message": "「教学方法的运用」为空，不能导出。请返回第3步补充教学方法内容后再导出 Word。",
+                "fill_report": None,
+                "download_url": "",
+                "output_name": "",
+                "template_analysis": template_analysis,
+            }, HTTPStatus.UNPROCESSABLE_ENTITY))
+            return
+
         grade = str(fields.get("grade") or fields.get("class_name") or "年级")
         subject = str(fields.get("subject") or "学科")
         title = str(fields.get("lesson_title") or "教案")
@@ -485,11 +500,15 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         output_path = OUTPUT_DIR / output_name
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         fill_report = fill_docx_template(template_path, fields, output_path)
+        fwc = fill_report.field_write_counts
+        tm_count = fwc.get("teaching_method", 0)
         self._send(*_json_bytes({
             "fill_report": fill_report.to_dict(),
             "download_url": f"/download/{quote(output_name)}",
             "output_name": output_name,
             "template_analysis": template_analysis,
+            "teaching_method_writes": tm_count,
+            "teaching_method_status": "已填写" if tm_count >= 2 else ("部分填写" if tm_count > 0 else "未填写"),
         }))
 
     def _handle_agent_start(self) -> None:

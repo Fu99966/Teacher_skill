@@ -307,7 +307,13 @@ function renderEditor() {
 
   function field(k){
     var v=fields[k]||'', label=fieldLabelMap[k]||k.replace(/_/g,' ');
-    return '<div class="field-item"><label><span class="field-key">'+k+'</span><span class="field-label">'+label+'</span></label><textarea data-key="'+k+'" rows="3">'+escapeHtml(v)+'</textarea><div class="char-count">'+v.length+' 字</div></div>';
+    var isEmpty = k==='teaching_method' && !v.trim();
+    var cls = isEmpty ? 'field-item' : 'field-item';
+    var extra = '';
+    if (isEmpty) {
+      extra = '<div style="margin-top:4px;padding:6px 10px;background:#fef2f2;border-radius:6px;color:#dc2626;font-size:.8rem;">⚠️ 教学方法的运用为空，请补充后再导出</div>';
+    }
+    return '<div class="'+cls+'"><label><span class="field-key">'+k+'</span><span class="field-label">'+label+'</span></label><textarea data-key="'+k+'" rows="3" style="'+(isEmpty?'border-color:#ef4444;background:#fef2f2;':'')+'">'+escapeHtml(v)+'</textarea><div class="char-count">'+v.length+' 字</div>'+extra+'</div>';
   }
 
   var html='';
@@ -334,12 +340,13 @@ document.getElementById('btn-step3-write').addEventListener('click',async functi
     else{hide('fill-error');}
 
     var fwc=fr.field_write_counts||{}, fields=state.fields||{};
+    var tmStatus = data.teaching_method_status||(fwc['teaching_method']>=2?'已填写':(fwc['teaching_method']>0?'部分填写':'未填写'));
     var checklistItems=[
       {label:'课题', key:'lesson_title'},
       {label:'教学目的', key:'teaching_goals'},
       {label:'重点难点', key:'teaching_key_difficult'},
       {label:'主要教学内容', key:'teaching_process'},
-      {label:'教学方法', key:'teaching_method'},
+      {label:'教学方法', key:'teaching_method', status:tmStatus, writes:fwc['teaching_method']||0},
       {label:'作业', key:'homework'},
       {label:'课后小记', key:'reflection'},
       {label:'Word 已生成', key:'_docx'},
@@ -349,8 +356,10 @@ document.getElementById('btn-step3-write').addEventListener('click',async functi
     checklistItems.forEach(function(item){
       var ok;
       if(item.key==='_docx') ok=!!data.download_url;
+      else if(item.key==='teaching_method') ok=(item.writes||0)>=2;
       else ok=!!(fields[item.key]||'').trim();
-      ch+='<li class="'+(ok?'pass':'fail')+'">'+(ok?'✓':'✗')+' '+item.label+(ok?'：已填写':'：未填写')+'</li>';
+      var suffix = item.writes ? '（写入'+item.writes+'个位置）' : '';
+      ch+='<li class="'+(ok?'pass':'fail')+'">'+(ok?'✓':'✗')+' '+item.label+(ok?'：已填写'+suffix:'：未填写'+suffix)+'</li>';
     });
     ch+='<li class="pass" style="border-top:1px solid #e5e7eb;margin-top:4px;padding-top:4px;">✓ 共写入 '+wc+' 个表格位置（'+ne+' 个非空字段）</li>';
     ch+='</ul>';
@@ -386,7 +395,13 @@ document.getElementById('btn-step3-write').addEventListener('click',async functi
     show('download-actions');
     toast('教案已生成！','success');
   }catch(e){
-    show('fill-error'); document.getElementById('fill-error').textContent='❌ 写入失败：'+e.message;
+    show('fill-error');
+    var errMsg = e.message||'写入失败';
+    if (errMsg.indexOf('teaching_method_empty')>=0 || errMsg.indexOf('教学方法')>=0) {
+      document.getElementById('fill-error').innerHTML = '<div style="text-align:left;">❌ <strong>教学方法的运用为空，无法导出。</strong><br>请<a href="#" onclick="goStep(3)" style="color:#667eea;text-decoration:underline;">返回第3步</a>补充教学方法内容后再导出 Word。</div>';
+    } else {
+      document.getElementById('fill-error').textContent = '❌ 写入失败：'+errMsg;
+    }
     reportEl.innerHTML='<p style="color:#ef4444;">写入 Word 时发生错误，请返回第3步检查内容后重试。</p>';
     toast('写入失败','error');
   }

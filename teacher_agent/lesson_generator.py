@@ -165,7 +165,51 @@ def backfill_empty_fields_with_local_fallback(
     for field in normalized_fields:
         if not _clean_text(result.get(field)):
             result[field] = fallback.get(field, "")
+
+    # teaching_method intelligence: if still empty, generate from teaching_process
+    if not _clean_text(result.get("teaching_method")) and _clean_text(result.get("teaching_process")):
+        result["teaching_method"] = _derive_teaching_method_from_process(
+            result["teaching_method"], title, result["teaching_process"]
+        )
+
     return result
+
+
+def _derive_teaching_method_from_process(_existing: str, title: str, teaching_process: str) -> str:
+    """Generate teaching_method from teaching_process content."""
+    tp = teaching_process
+    methods: list[str] = []
+
+    # Detect method patterns from teaching_process text
+    patterns = [
+        ("导入", "情境导入法"),
+        ("探究", "探究式学习"),
+        ("讨论", "小组讨论法"),
+        ("小组", "小组合作学习"),
+        ("实验", "实验探究法"),
+        ("演示", "演示教学法"),
+        ("案例", "案例分析法"),
+        ("任务驱动", "任务驱动法"),
+        ("练习", "练习法"),
+        ("观察", "观察法"),
+        ("归纳", "归纳总结法"),
+        ("对比", "对比分析法"),
+        ("角色扮演", "角色扮演法"),
+        ("模拟", "模拟教学法"),
+        ("头脑风暴", "头脑风暴法"),
+        ("翻转", "翻转课堂"),
+        ("微课", "微课辅助教学"),
+        ("项目", "项目教学法"),
+    ]
+    for keyword, method_name in patterns:
+        if keyword in tp and method_name not in methods:
+            methods.append(method_name)
+
+    if not methods:
+        methods = ["讲授法", "问答法", "讨论法"]
+
+    method_text = "、".join(methods)
+    return f"本课采用{method_text}相结合的教学方式。教学过程中注重学生主体地位，通过创设情境、组织活动、引导探究和即时反馈，帮助学生理解《{title}》的核心内容。教师在课堂中扮演组织者、引导者和促进者的角色，关注学生的个体差异和课堂生成。"
 
 
 def _field_label_hint(field_name: str) -> str:

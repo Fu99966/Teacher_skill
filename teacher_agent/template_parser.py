@@ -50,6 +50,8 @@ FIELD_LABELS: dict[str, tuple[str, ...]] = {
 
 NEXT_ROW_PREFERRED_FIELDS = {"teaching_process", "teaching_method"}
 
+REQUIRED_FIELDS = {"teaching_method", "teaching_process"}
+
 FIELD_LABELS_BY_ALIAS: list[tuple[str, str]] = sorted(
     [(f, a) for f, aliases in FIELD_LABELS.items() for a in aliases],
     key=lambda x: -len(x[1]),
@@ -319,6 +321,9 @@ def analyze_template(path: str | Path) -> dict[str, Any]:
     if not mapped_fields:
         errors.append('未识别到可填写字段。请在模板中加入 {{field_name}} 占位符，或使用可识别的表格标签，例如"教学目标""教学过程""作业设计"。')
 
+    # Mark required fields
+    required_field_list: list[str] = [f for f in mapped_fields if f in REQUIRED_FIELDS]
+
     return {
         "placeholders": placeholders, "placeholder_occurrences": field_context,
         "table_mappings": table_mappings, "mapped_fields": mapped_fields,
@@ -326,5 +331,6 @@ def analyze_template(path: str | Path) -> dict[str, Any]:
         "table_count": len(document.tables), "paragraph_count": len(document.paragraphs),
         "mode": "mixed" if placeholders and table_mappings else ("placeholder" if placeholders else "table_mapping"),
         "fillable_count": len(mapped_fields), "needs_template_markers": not mapped_fields,
+        "required_fields": required_field_list,
         "warnings": [], "errors": errors,
     }
