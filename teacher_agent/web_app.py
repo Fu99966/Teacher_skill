@@ -311,6 +311,51 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
 
+        # ── Agent API routes ──
+        agent_start_match = re.match(r"^/api/agent/start$", parsed.path)
+        if agent_start_match:
+            try:
+                self._handle_agent_start()
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        agent_get_match = re.match(r"^/api/agent/([^/]+)$", parsed.path)
+        if agent_get_match and self.command == "GET":
+            try:
+                self._handle_agent_get(agent_get_match.group(1))
+            except KeyError:
+                self._send(*_json_bytes({"error": "Session not found"}, HTTPStatus.NOT_FOUND))
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        agent_continue_match = re.match(r"^/api/agent/([^/]+)/continue$", parsed.path)
+        if agent_continue_match:
+            try:
+                self._handle_agent_continue(agent_continue_match.group(1))
+            except KeyError:
+                self._send(*_json_bytes({"error": "Session not found"}, HTTPStatus.NOT_FOUND))
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        agent_cancel_match = re.match(r"^/api/agent/([^/]+)/cancel$", parsed.path)
+        if agent_cancel_match:
+            try:
+                self._handle_agent_cancel(agent_cancel_match.group(1))
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        agent_repair_match = re.match(r"^/api/agent/([^/]+)/repair$", parsed.path)
+        if agent_repair_match:
+            try:
+                self._handle_agent_repair(agent_repair_match.group(1))
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
         if parsed.path != "/api/generate":
             self._send(*_json_bytes({"error": "接口不存在"}, HTTPStatus.NOT_FOUND))
             return
@@ -389,6 +434,142 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "output_name": output_name,
             "template_analysis": template_analysis,
         }))
+
+    def _handle_agent_start(self) -> None:
+        """POST /api/agent/start – Start agent, pause at teacher_review_gate."""
+        import uuid
+        from .agent_core.checkpoint import AgentCheckpointStore
+        from .agent_core.graph_planner import build_graph
+        from .agent_core.state import AgentRunState
+        from .agent_core.tool_registry import build_agent_tool_registry
+        from .agent_core.executor import AgentExecutor
+        from .agent_core.task_router import route_task
+
+        form = self._read_multipart_form()
+        template_path = self._save_template(form)
+        template_id = _template_id_for(template_path)
+        analysis = analyze_template(template_path)
+
+        agent_request = _form_value(form, "agent_request", "")
+        subject = _form_value(form, "subject", "物联网")
+        grade = _form_value(form, "grade", "24物联网1班")
+        title = _form_value(form, "title", "未命名课题")
+        material = _form_value(form, "material", "")
+        class_hour = _form_value(form, "class_hour", "1课时")
+        class_type = _form_value(form, "class_type", DEFAULT_CLASS_TYPE)
+        teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
+
+        task = route_task(agent_request or f"生成{subject}{grade}{title}教案", {
+            "subject": subject, "grade": grade, "title": title,
+            "class_hour": class_hour, "class_type": class_type, "teaching_style": teaching_style,
+        })
+        session_id = uuid.uuid4().hex[:12]
+        task_dict = task.to_dict()
+        task_dict["material"] = material
+
+        state = AgentRunState(
+            session_id=session_id, status="initialized", task=task_dict,
+            current_node="", next_action="", template_path=str(template_path),
+            template_id=template_id, template_analysis=analysis,
+        )
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        registry = build_agent_tool_registry(
+            output_dir=OUTPUT_DIR, preview_dir=PREVIEW_DIR,
+            history_db=HISTORY_DB, memory_db=AGENT_MEMORY_DB,
+        )
+        checkpoint = AgentCheckpointStore(OUTPUT_DIR)
+        executor = AgentExecutor(registry, checkpoint)
+
+        graph = build_graph(task)
+        result = executor.run(graph, state)
+
+        self._send(*_json_bytes(result.to_dict()))
+
+    def _handle_agent_get(self, session_id: str) -> None:
+        """GET /api/agent/{session_id} – Get current agent state."""
+        from .agent_core.checkpoint import AgentCheckpointStore
+        checkpoint = AgentCheckpointStore(OUTPUT_DIR)
+        state = checkpoint.load(session_id)
+        if state is None:
+            raise KeyError(session_id)
+        self._send(*_json_bytes(state.to_dict()))
+
+    def _handle_agent_continue(self, session_id: str) -> None:
+        """POST /api/agent/{session_id}/continue – Continue after teacher review."""
+        import json as _json
+        from .agent_core.checkpoint import AgentCheckpointStore
+        from .agent_core.graph_planner import build_graph
+        from .agent_core.state import AgentRunState
+        from .agent_core.tool_registry import build_agent_tool_registry
+        from .agent_core.executor import AgentExecutor
+        from .agent_core.task_router import AgentTask
+
+        checkpoint = AgentCheckpointStore(OUTPUT_DIR)
+        state = checkpoint.load(session_id)
+        if state is None:
+            raise KeyError(session_id)
+
+        content_type = self.headers.get("Content-Type", "")
+        teacher_edits: dict[str, Any] = {}
+        if "application/json" in content_type:
+            content_length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(content_length).decode("utf-8")
+            teacher_edits = _json.loads(body).get("teacher_edits", {})
+        elif "multipart/form-data" in content_type:
+            form = self._read_multipart_form()
+            edits_json = _form_value(form, "teacher_edits", "{}")
+            teacher_edits = _json.loads(edits_json)
+
+        if teacher_edits:
+            fields = state.fields or {}
+            fields.update(teacher_edits)
+            state.fields = fields
+            state.teacher_edits = teacher_edits
+            state.status = "fields_generated"
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        registry = build_agent_tool_registry(
+            output_dir=OUTPUT_DIR, preview_dir=PREVIEW_DIR,
+            history_db=HISTORY_DB, memory_db=AGENT_MEMORY_DB,
+        )
+        executor = AgentExecutor(registry, checkpoint)
+        # Rebuild graph for task
+        task = AgentTask(
+            raw_request=str(state.task.get("raw_request", "")),
+            task_type="lesson_plan", subject=str(state.task.get("subject", "")),
+            grade=str(state.task.get("grade", "")), title=str(state.task.get("title", "")),
+            class_hour=str(state.task.get("class_hour", "1课时")),
+            class_type=str(state.task.get("class_type", "新授课")),
+            teaching_style=str(state.task.get("teaching_style", "常规启发式")),
+            student_level=str(state.task.get("student_level", "常规混合水平")),
+            generation_depth=str(state.task.get("generation_depth", "标准")),
+            missing_fields=[], confidence=0.9, notes=[],
+        )
+        group = build_graph(task)
+        result = executor.continue_from_gate(group, state)
+        self._send(*_json_bytes(result.to_dict()))
+
+    def _handle_agent_cancel(self, session_id: str) -> None:
+        """POST /api/agent/{session_id}/cancel"""
+        from .agent_core.checkpoint import AgentCheckpointStore
+        checkpoint = AgentCheckpointStore(OUTPUT_DIR)
+        checkpoint.delete(session_id)
+        self._send(*_json_bytes({"cancelled": True}))
+
+    def _handle_agent_repair(self, session_id: str) -> None:
+        """POST /api/agent/{session_id}/repair – Attempt repair."""
+        from .agent_core.checkpoint import AgentCheckpointStore
+        from .agent_core.repair import repair_state
+
+        checkpoint = AgentCheckpointStore(OUTPUT_DIR)
+        state = checkpoint.load(session_id)
+        if state is None:
+            raise KeyError(session_id)
+
+        state = repair_state(state)
+        checkpoint.save(state)
+        self._send(*_json_bytes(state.to_dict()))
 
     def _read_multipart_form(self) -> cgi.FieldStorage:
         content_type = self.headers.get("Content-Type", "")

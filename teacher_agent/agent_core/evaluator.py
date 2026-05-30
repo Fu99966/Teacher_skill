@@ -130,3 +130,111 @@ def _docx_has_placeholders(path: Path) -> bool:
     except zipfile.BadZipFile:
         return True
     return False
+
+
+# ── New: Delivery + Pedagogy split ──
+
+def evaluate_delivery(
+    *,
+    fields: dict[str, Any],
+    output_path: Path | None,
+    download_url: str | None,
+    template_analysis: dict[str, Any] | None,
+    fill_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Check technical delivery: file exists, fields written, no placeholders."""
+    checks: list[dict[str, Any]] = []
+    score = 100
+
+    def _c(name: str, ok: bool, fail_msg: str) -> None:
+        nonlocal score
+        checks.append({"name": name, "passed": ok, "detail": "" if ok else fail_msg})
+        if not ok:
+            score -= 15
+
+    _c("fields_present", bool(fields), "未返回文档字段")
+    _c("download_url", bool(download_url), "缺少下载链接")
+    _c("word_file", bool(output_path and output_path.exists()), "Word文件不存在")
+
+    if fill_report:
+        _c("no_fill_errors", not fill_report.get("errors"), "; ".join(fill_report.get("errors") or []))
+        _c("no_missing", not fill_report.get("missing_fields"), "缺失字段: " + ", ".join(fill_report.get("missing_fields") or []))
+        _c("no_placeholders", not fill_report.get("remaining_placeholders"), "残留占位符: " + ", ".join(fill_report.get("remaining_placeholders") or []))
+        _c("filled_count", int(fill_report.get("filled_non_empty_count") or 0) > 0, "未写入任何非空字段")
+        fwc = fill_report.get("field_write_counts", {})
+        _c("teaching_process_written", fwc.get("teaching_process", 0) > 0, "主要教学内容未写入")
+        _c("teaching_method_written", fwc.get("teaching_method", 0) > 0, "教学方法未写入")
+
+    if output_path and output_path.exists():
+        _c("no_docx_placeholders", not _docx_has_placeholders(output_path), "Word中仍残留占位符")
+
+    score = max(0, score)
+    passed = all(c["passed"] for c in checks)
+    return {
+        "passed": passed, "delivery_score": score,
+        "delivery_checks": checks,
+        "summary": "交付检查通过" if passed else f"交付检查未通过 ({score}分)",
+    }
+
+
+def evaluate_pedagogy_quality(fields: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+    """Rule-based pedagogy quality check (no LLM needed)."""
+    checks: list[dict[str, Any]] = []
+    score = 100
+    suggestions: list[str] = []
+
+    goals = str(fields.get("teaching_goals", ""))
+    process = str(fields.get("teaching_process", ""))
+    homework = str(fields.get("homework", ""))
+    reflection = str(fields.get("reflection", ""))
+
+    def _c(name: str, ok: bool, hint: str) -> None:
+        nonlocal score
+        checks.append({"name": name, "passed": ok, "detail": "" if ok else hint})
+        if not ok:
+            score -= 10
+            suggestions.append(hint)
+
+    # Goals check
+    _c("goals_specific", len(goals) > 30 and any(k in goals for k in ("理解", "掌握", "能")),
+       "教学目标建议更具体，包含知识、能力、素养三个维度")
+
+    # Key-difficult check
+    kd = str(fields.get("teaching_key_difficult", ""))
+    _c("key_difficult_clear", "重点" in kd or "难点" in kd or len(kd) > 20,
+       "重点难点建议明确标注'重点：'和'难点：'")
+
+    # Process structure
+    proc_parts = ["导入", "新授", "练习", "总结", "探究", "讨论", "实践"]
+    found_parts = sum(1 for p in proc_parts if p in process)
+    _c("process_structure", found_parts >= 2,
+       f"教学过程建议包含导入/新授/练习/总结等环节（当前识别到{found_parts}个）")
+
+    # Method check
+    method = str(fields.get("teaching_method", ""))
+    _c("method_specific", len(method) > 15,
+       "教学方法建议写具体方式，如'案例教学+小组讨论'")
+
+    # Homework layers
+    hw_parts = ["基础", "提升", "拓展", "必做", "选做"]
+    hw_found = sum(1 for p in hw_parts if p in homework)
+    _c("homework_layered", len(homework) > 20 or hw_found >= 1,
+       "作业建议分层（基础/提升/拓展）")
+
+    # Reflection check
+    _c("reflection_meaningful", len(reflection) > 15 and not _has_ai_filler(reflection),
+       "课后小记建议写具体观察点，避免套话")
+
+    score = max(0, score)
+    passed = score >= 60
+    return {
+        "passed": passed, "score": score,
+        "pedagogy_checks": checks,
+        "suggestions": suggestions,
+        "summary": f"教研审查{'通过' if passed else '未通过'}（{score}分）",
+    }
+
+
+def _has_ai_filler(text: str) -> bool:
+    fillers = ["课后重点观察", "根据反馈调整", "是否能在", "完成情况"]
+    return sum(1 for f in fillers if f in text) >= 2
