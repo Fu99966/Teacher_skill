@@ -68,6 +68,13 @@ def _compact_text(value: Any) -> str:
     return re.sub(r"\s+", "", str(value or "")).strip()
 
 
+def normalize_topic_key(text: str) -> str:
+    """Normalize topic names for keyword routing, e.g. PCB 板设计 -> PCB板设计."""
+    compact = re.sub(r"[\s\u3000]+", "", str(text or ""))
+    compact = re.sub(r"[《》“”\"'，,。.:：;；、\-_/\\|()（）\[\]【】{}]+", "", compact)
+    return compact.upper()
+
+
 def _extract_title_from_request(agent_request: str) -> str:
     match = re.search(r"《([^》]{1,80})》", str(agent_request or ""))
     return match.group(1).strip() if match else ""
@@ -90,6 +97,34 @@ def sanitize_lesson_title(title: str, agent_request: str, fallback_title: str = 
     return "未命名课题"
 
 
+def is_generation_request_text(text: str) -> bool:
+    """Return True when text is a teacher's generation instruction, not course material."""
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not cleaned:
+        return False
+    compact = _compact_text(cleaned)
+    has_generation_verb = any(marker in compact for marker in ("帮我生成", "生成一份", "写一份", "做一份", "请生成", "帮我写"))
+    has_lesson_doc = "教案" in compact or "教学设计" in compact or "备课" in compact
+    if has_generation_verb and has_lesson_doc:
+        return True
+    if "课时" in compact and has_lesson_doc and any(marker in compact for marker in ("生成", "帮我", "写", "做")):
+        return True
+    if len(compact) <= 80 and "生成" in compact and has_lesson_doc:
+        return True
+    prompt_like_markers = (
+        "适合",
+        "实训课",
+        "项目式教学",
+        "24级",
+        "24物联网",
+        "PCB板设计",
+        "PCB设计",
+    )
+    compact_upper = compact.upper()
+    marker_hits = sum(1 for marker in prompt_like_markers if marker.upper() in compact_upper)
+    return has_lesson_doc and "课时" in compact and marker_hits >= 1
+
+
 def sanitize_material_hint(material: str, agent_request: str = "") -> str:
     """Keep natural-language generation prompts out of 教材依据."""
     cleaned = re.sub(r"\s+", " ", str(material or "")).strip()
@@ -103,12 +138,7 @@ def sanitize_material_hint(material: str, agent_request: str = "") -> str:
         if compact_material == compact_request or ratio >= 0.72:
             return ""
 
-    generation_markers = ("帮我生成", "生成一份", "写一份", "做一份", "请生成", "帮我写")
-    prompt_markers = ("教案", "适合项目式教学", "课时")
-    looks_like_request = any(marker in cleaned for marker in generation_markers) or (
-        cleaned.startswith(("帮我", "请")) and "教案" in cleaned
-    )
-    if looks_like_request and any(marker in cleaned for marker in prompt_markers):
+    if is_generation_request_text(cleaned):
         return ""
 
     if "《" in cleaned and "》" in cleaned and "课时" in cleaned and "教案" in cleaned:
@@ -404,7 +434,8 @@ def _local_fallback_fields(
     hour_count = parse_class_hour_count(class_hour)
     hour_text = class_hour.strip() or f"{hour_count}课时"
     title_text = sanitize_lesson_title(title, material, title)
-    is_pcb = "PCB" in title_text.upper()
+    topic_key = normalize_topic_key(title_text)
+    is_pcb = "PCB" in topic_key
 
     single_process = f"一、导入新课：创设与《{title_text}》相关的问题情境，唤起学生已有经验。\n二、新知探究：围绕教学内容组织阅读、观察、讨论和归纳。\n三、巩固应用：完成基础练习与变式任务，教师即时反馈。\n四、课堂总结：学生梳理本课收获和仍需追问的问题。"
     unit_process = f"一、单元导入：明确《{title_text}》的学习主题、核心问题和阶段目标。\n二、核心知识学习：分课时梳理关键概念、方法和典型案例，形成知识网络。\n三、任务训练：围绕核心知识设置分层任务，组织学生完成练习、讨论和展示。\n四、综合应用：设计综合情境任务，引导学生迁移运用并修正理解偏差。\n五、评价总结：通过任务单、展示互评和教师点评完成单元回顾。"
@@ -490,6 +521,8 @@ def _local_fallback_fields(
         base["teaching_process"] += f"\n教材依据：{material_hint}"
     elif scope == "project_lesson" and is_pcb:
         base["teaching_process"] += "\n教材依据：依据物联网应用技术专业课程要求、PCB设计项目任务书、EDA软件操作规范和实训教学目标组织教学。"
+    else:
+        base["teaching_process"] += "\n教材依据：依据课程标准、教材内容、课堂教学目标和学生学情组织教学。"
 
     return {field: base.get(field, f"围绕《{title}》生成“{_field_label_hint(field)}”相关内容。") for field in dynamic_fields}
 
