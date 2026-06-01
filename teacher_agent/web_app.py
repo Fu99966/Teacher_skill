@@ -24,6 +24,7 @@ from .lesson_generator import (
     DEFAULT_TEACHING_STYLE,
     LessonGenerationError,
     check_generation_health,
+    normalize_lesson_field_aliases,
     refine_lesson_field,
     sanitize_lesson_title,
     sanitize_material_hint,
@@ -216,9 +217,6 @@ def _normalize_teacher_web_fields(fields: dict[str, Any], task: Any, agent_reque
             parts.append(f"难点：{difficult_points}")
         normalized["teaching_key_difficult"] = "\n".join(parts)
 
-    if "teaching_aids" not in normalized and normalized.get("teaching_preparation"):
-        normalized["teaching_aids"] = normalized["teaching_preparation"]
-
     method = str(normalized.get("teaching_method") or "").strip()
     if not method:
         style = str(getattr(task, "teaching_style", "") or "")
@@ -240,7 +238,7 @@ def _normalize_teacher_web_fields(fields: dict[str, Any], task: Any, agent_reque
             method = "讲授启发、任务练习、小组讨论、课堂反馈。"
         normalized["teaching_method"] = method
 
-    return normalized
+    return normalize_lesson_field_aliases(normalized, agent_request)
 
 
 class TeacherAgentHandler(BaseHTTPRequestHandler):
@@ -1046,7 +1044,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             )
             return
 
-        clean_material = sanitize_material_hint(material, agent_request)
+        clean_material = sanitize_material_hint(material, agent_request, task.title)
         lesson_request = LessonRequest(
             task.subject, task.grade, task.title,
             task.class_hour, clean_material,
@@ -1166,6 +1164,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             agent_request,
             fallback_title,
         )
+        fields = normalize_lesson_field_aliases(fields, agent_request)
 
         template_path = _template_from_id(template_id)
         workflow = TeacherWorkflow()

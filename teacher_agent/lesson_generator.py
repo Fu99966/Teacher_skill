@@ -63,6 +63,10 @@ FIELD_LABEL_TITLES = {
     "教学反思",
 }
 
+PCB_PROJECT_PREPARATION = "计算机机房、EDA设计软件、PCB示例板、原理图素材、元件封装库、DRC规则说明、项目任务单、评价表。"
+PCB_PROJECT_MATERIAL_BASIS = "依据物联网应用技术专业课程要求、PCB设计项目任务书、EDA软件操作规范和实训教学目标组织教学。"
+GENERAL_MATERIAL_BASIS = "依据课程标准、教材内容、课堂教学目标和学生学情组织教学。"
+
 
 def _compact_text(value: Any) -> str:
     return re.sub(r"\s+", "", str(value or "")).strip()
@@ -125,7 +129,7 @@ def is_generation_request_text(text: str) -> bool:
     return has_lesson_doc and "课时" in compact and marker_hits >= 1
 
 
-def sanitize_material_hint(material: str, agent_request: str = "") -> str:
+def sanitize_material_hint(material: str, agent_request: str = "", title: str = "") -> str:
     """Keep natural-language generation prompts out of 教材依据."""
     cleaned = re.sub(r"\s+", " ", str(material or "")).strip()
     if not cleaned:
@@ -143,8 +147,61 @@ def sanitize_material_hint(material: str, agent_request: str = "") -> str:
 
     if "《" in cleaned and "》" in cleaned and "课时" in cleaned and "教案" in cleaned:
         return ""
+    compact = _compact_text(cleaned)
+    compact_title = _compact_text(title)
+    if "课时" in compact and "教案" in compact and (not compact_title or compact_title in compact):
+        return ""
 
     return cleaned
+
+
+def is_pcb_project_lesson(title: str, class_hour: str = "", class_type: str = "") -> bool:
+    return "PCB" in normalize_topic_key(title) and infer_lesson_scope(class_hour, class_type) == "project_lesson"
+
+
+def default_material_basis(title: str, class_hour: str = "", class_type: str = "") -> str:
+    if is_pcb_project_lesson(title, class_hour, class_type):
+        return PCB_PROJECT_MATERIAL_BASIS
+    return GENERAL_MATERIAL_BASIS
+
+
+def normalize_lesson_field_aliases(fields: dict[str, Any], agent_request: str = "") -> dict[str, Any]:
+    """Normalize final fields before preview/export so aliases cannot drift apart."""
+    result = dict(fields or {})
+    title = str(result.get("lesson_title") or result.get("title") or "")
+    class_hour = str(result.get("class_hour") or "")
+    class_type = str(result.get("class_type") or "")
+
+    if is_pcb_project_lesson(title, class_hour, class_type):
+        result["teaching_preparation"] = PCB_PROJECT_PREPARATION
+        result["teaching_aids"] = PCB_PROJECT_PREPARATION
+        result["teaching_resources"] = PCB_PROJECT_PREPARATION
+        result["preparation"] = PCB_PROJECT_PREPARATION
+    else:
+        preparation = (
+            result.get("teaching_preparation")
+            or result.get("teaching_aids")
+            or result.get("teaching_resources")
+            or result.get("preparation")
+            or ""
+        )
+        if preparation:
+            result.setdefault("teaching_preparation", preparation)
+            result.setdefault("teaching_aids", preparation)
+
+    process = str(result.get("teaching_process") or "")
+    if process:
+        basis_pattern = re.compile(r"教材依据[：:]\s*([^\r\n]*)")
+
+        def replace_basis(match: re.Match[str]) -> str:
+            current_basis = match.group(1).strip()
+            clean_basis = sanitize_material_hint(current_basis, agent_request, title)
+            if clean_basis:
+                return f"教材依据：{clean_basis}"
+            return f"教材依据：{default_material_basis(title, class_hour, class_type)}"
+
+        result["teaching_process"] = basis_pattern.sub(replace_basis, process)
+    return result
 
 
 def infer_school_stage(grade: str) -> str:
@@ -427,13 +484,13 @@ def _local_fallback_fields(
     dynamic_fields: list[str],
     class_type: str = "",
 ) -> dict[str, str]:
-    material_hint = sanitize_material_hint(material)
-    if len(material_hint) > 140:
-        material_hint = material_hint[:140] + "..."
     scope = infer_lesson_scope(class_hour, class_type)
     hour_count = parse_class_hour_count(class_hour)
     hour_text = class_hour.strip() or f"{hour_count}课时"
     title_text = sanitize_lesson_title(title, material, title)
+    material_hint = sanitize_material_hint(material, "", title_text)
+    if len(material_hint) > 140:
+        material_hint = material_hint[:140] + "..."
     topic_key = normalize_topic_key(title_text)
     is_pcb = "PCB" in topic_key
 
@@ -445,8 +502,8 @@ def _local_fallback_fields(
         project_process = f"本项目共{hour_text}，围绕《{title_text}》设计项目化整体教学方案。\n一、项目总任务：明确真实任务情境、成果要求和评价标准，学生以小组方式完成完整项目。\n二、课时分配表：项目导入与任务拆解（2课时）；核心知识学习与方法示范（{max(2, hour_count // 4)}课时）；阶段任务训练与巡回指导（{max(3, hour_count // 3)}课时）；综合应用与成果完善（{max(2, hour_count // 4)}课时）；作品展示、评价反馈与总结提升（2课时）。\n三、阶段任务：按“认知准备—方法训练—项目实践—成果完善—展示评价”推进，每阶段都有明确学习产出。\n四、项目产出：学习任务单、阶段成果、项目作品、展示汇报和反思记录。\n五、评价方式：过程评价、成果评价、小组互评和教师评价结合。\n六、总结提升：复盘知识迁移、合作过程和质量改进方法。"
 
     if scope == "project_lesson" and is_pcb:
-        preparation = "计算机机房、EDA设计软件、PCB示例板、原理图素材、元件封装库、DRC规则说明、项目任务单、过程记录表和项目评价表。"
-        teaching_aids = "EDA设计软件、PCB示例板、原理图素材、元件封装库、DRC规则说明、Gerber输出示例、项目任务单和评价表。"
+        preparation = PCB_PROJECT_PREPARATION
+        teaching_aids = PCB_PROJECT_PREPARATION
         goals = "1. 知识目标：理解PCB设计流程、元件封装、布局布线、DRC检查、Gerber输出等核心知识。\n2. 能力目标：能完成从原理图到PCB布局布线、规则检查和文件输出的完整设计任务。\n3. 素养目标：形成工程规范意识、团队协作意识和质量改进意识。"
         teaching_method = "采用项目教学法、任务驱动法、演示教学法、分组协作、巡回指导和作品展示评价相结合的方式。教师围绕原理图绘制、PCB布局布线、DRC检查、Gerber输出和作品展示组织阶段任务，学生在真实项目实践中完成设计、检查、修改和汇报。"
         homework = "阶段作业：\n1. 完成PCB设计流程思维导图；\n2. 完成原理图绘制与封装检查；\n3. 提交PCB布局布线文件；\n4. 完成DRC检查记录；\n5. 整理Gerber输出文件和项目说明书。"
@@ -500,6 +557,8 @@ def _local_fallback_fields(
         "difficult_points": difficult_points,
         "teaching_key_difficult": f"重点：{key_points}\n难点：{difficult_points}",
         "teaching_preparation": preparation,
+        "teaching_resources": preparation,
+        "preparation": preparation,
         "teaching_environment": f"标准多媒体教室，配备投影设备、白板或智慧黑板，网络畅通。如本课《{title_text}》涉及实验或实训环节，应具备相应的操作台和演示器材。",
         "teaching_aids": teaching_aids,
         "teaching_method": teaching_method,
@@ -520,11 +579,12 @@ def _local_fallback_fields(
     if material_hint:
         base["teaching_process"] += f"\n教材依据：{material_hint}"
     elif scope == "project_lesson" and is_pcb:
-        base["teaching_process"] += "\n教材依据：依据物联网应用技术专业课程要求、PCB设计项目任务书、EDA软件操作规范和实训教学目标组织教学。"
+        base["teaching_process"] += f"\n教材依据：{PCB_PROJECT_MATERIAL_BASIS}"
     else:
-        base["teaching_process"] += "\n教材依据：依据课程标准、教材内容、课堂教学目标和学生学情组织教学。"
+        base["teaching_process"] += f"\n教材依据：{GENERAL_MATERIAL_BASIS}"
 
-    return {field: base.get(field, f"围绕《{title}》生成“{_field_label_hint(field)}”相关内容。") for field in dynamic_fields}
+    base = normalize_lesson_field_aliases(base)
+    return {field: base.get(field, f"围绕《{title_text}》生成“{_field_label_hint(field)}”相关内容。") for field in dynamic_fields}
 
 
 def build_lesson_prompt(
