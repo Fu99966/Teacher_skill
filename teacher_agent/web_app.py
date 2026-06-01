@@ -132,6 +132,86 @@ def _beginner_summary(evaluation_report: dict | None, is_generic_material: bool,
     return f"{quality_text}，并写入{template_text}。{material_text}"
 
 
+def _infer_single_prompt_defaults(text: str, defaults: dict[str, str]) -> dict[str, str]:
+    """Fill the three teacher-facing essentials from a natural-language prompt."""
+    merged = dict(defaults)
+    normalized = re.sub(r"\s+", " ", (text or "").strip())
+
+    if not merged.get("title"):
+        title_match = re.search(r"《([^》]{1,80})》", normalized)
+        if title_match:
+            merged["title"] = title_match.group(1).strip()
+
+    if not merged.get("grade"):
+        grade_match = re.search(r"([0-9０-９]{1,4}[\u4e00-\u9fffA-Za-z0-9０-９]*班)", normalized)
+        if grade_match:
+            merged["grade"] = grade_match.group(1).strip()
+
+    if not merged.get("subject"):
+        subject_keywords = (
+            "物联网", "信息技术", "人工智能", "计算机", "语文", "数学", "英语",
+            "物理", "化学", "生物", "科学", "历史", "地理", "政治",
+        )
+        for keyword in subject_keywords:
+            if keyword in normalized:
+                merged["subject"] = keyword
+                break
+
+    if not merged.get("class_hour"):
+        hour_match = re.search(r"([0-9０-９一二三四五六七八九十]+)\s*课时", normalized)
+        if hour_match:
+            merged["class_hour"] = hour_match.group(0).strip()
+
+    if not merged.get("class_type"):
+        if "实训" in normalized:
+            merged["class_type"] = "实训课"
+        elif "公开课" in normalized:
+            merged["class_type"] = "公开课"
+
+    if not merged.get("teaching_style") and ("项目式" in normalized or "项目驱动" in normalized or "PBL" in normalized.upper()):
+        merged["teaching_style"] = "项目驱动(PBL)"
+
+    return merged
+
+
+def _normalize_teacher_web_fields(fields: dict[str, Any], task: Any) -> dict[str, Any]:
+    """Keep the single-prompt UI populated even when the system template uses legacy keys."""
+    normalized = dict(fields or {})
+    normalized.setdefault("lesson_title", getattr(task, "title", "") or normalized.get("title", ""))
+    normalized.setdefault("subject", getattr(task, "subject", ""))
+    normalized.setdefault("grade", getattr(task, "grade", ""))
+    normalized.setdefault("class_name", getattr(task, "grade", ""))
+    normalized.setdefault("class_hour", getattr(task, "class_hour", ""))
+    normalized.setdefault("class_type", getattr(task, "class_type", ""))
+
+    key_points = str(normalized.get("key_points") or "").strip()
+    difficult_points = str(normalized.get("difficult_points") or "").strip()
+    if "teaching_key_difficult" not in normalized and (key_points or difficult_points):
+        parts = []
+        if key_points:
+            parts.append(f"重点：{key_points}")
+        if difficult_points:
+            parts.append(f"难点：{difficult_points}")
+        normalized["teaching_key_difficult"] = "\n".join(parts)
+
+    if "teaching_aids" not in normalized and normalized.get("teaching_preparation"):
+        normalized["teaching_aids"] = normalized["teaching_preparation"]
+
+    method = str(normalized.get("teaching_method") or "").strip()
+    if not method:
+        style = str(getattr(task, "teaching_style", "") or "")
+        class_type = str(getattr(task, "class_type", "") or "")
+        if "项目" in style or "PBL" in style.upper() or "实训" in class_type:
+            method = "项目驱动、小组协作、任务实践、案例分析。"
+        elif "公开课" in class_type:
+            method = "情境导入、启发提问、互动探究、评价反馈。"
+        else:
+            method = "讲授启发、任务练习、小组讨论、课堂反馈。"
+        normalized["teaching_method"] = method
+
+    return normalized
+
+
 class TeacherAgentHandler(BaseHTTPRequestHandler):
     server_version = "TeacherAgentWeb/0.1"
 
@@ -723,9 +803,9 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
         student_level = _form_value(form, "student_level", DEFAULT_STUDENT_LEVEL)
         generation_depth = _form_value(form, "generation_depth", DEFAULT_GENERATION_DEPTH)
-        strict_ai = _form_bool(form, "strict_ai", True)
+        strict_ai = _form_bool(form, "strict_ai", False)
         creative_mode = _form_value(form, "creative_mode", "更像公开课")
-        template_mode = _form_value(form, "template_mode", "upload").strip() or "upload"
+        template_mode = _form_value(form, "template_mode", "system").strip() or "system"
         if template_mode not in {"system", "upload"}:
             raise ValueError("模板模式无效，请选择系统模板或上传模板")
         if template_mode == "upload":
@@ -851,6 +931,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "student_level": str(payload.get("student_level") or ""),
             "generation_depth": str(payload.get("generation_depth") or ""),
         }
+        defaults = _infer_single_prompt_defaults(agent_request, defaults)
         task = route_task(agent_request, defaults)
         plan = build_plan(task)
         self._send(
@@ -897,6 +978,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "student_level": student_level if student_level != DEFAULT_STUDENT_LEVEL else "",
             "generation_depth": generation_depth if generation_depth != DEFAULT_GENERATION_DEPTH else "",
         }
+        defaults = _infer_single_prompt_defaults(agent_request, defaults)
         task = route_task(agent_request, defaults)
         plan = build_plan(task)
 
@@ -963,11 +1045,23 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         executor = AgentExecutor(registry, checkpoint)
         agent_graph = build_agent_graph(task)
         result = executor.run(agent_graph, state)
+        result.state.fields = _normalize_teacher_web_fields(result.state.fields or {}, task)
 
         export_result = result.state.export_result or {}
+        llm_status = check_generation_health(probe=False).to_dict()
+        generation_backend = "agent"
+        for node in agent_graph:
+            if node.id != "draft_fields":
+                continue
+            match = re.search(r"generation_backend:\s*([^,，;；\s]+)", node.detail or "")
+            if match:
+                generation_backend = match.group(1).strip()
+            break
+        if not strict_ai and not llm_status.get("configured") and generation_backend == "agent":
+            generation_backend = "local_fallback"
         draft_result: dict[str, Any] = {
             "fields": result.state.fields or {},
-            "generation_backend": "agent",
+            "generation_backend": generation_backend,
             "review_report": result.state.review_report,
         }
 
@@ -991,7 +1085,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "workflow_trace": result.state.trace,
             "template_mode": actual_template_mode,
             "is_generic_material": is_generic_material,
-            "llm_status": check_generation_health(probe=False).to_dict(),
+            "llm_status": llm_status,
             "mode": actual_template_mode,
             "visible_sections": ["fields", "trace", "download"],
             "technical_details_available": True,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -85,3 +86,28 @@ def test_css_contains_card_layout_step_bar_and_toast():
     assert ".delivery-card" in css
     assert ".toast" in css
     assert "width: min(780px" in css
+
+
+def _input_tag(html: str, name: str) -> str:
+    match = re.search(rf"<input\b[^>]*\bname=\"{name}\"[^>]*>", html)
+    assert match, f"missing input name={name}"
+    return match.group(0)
+
+
+def test_first_screen_has_no_native_required_course_or_template_fields():
+    html = _read_web_file("index.html")
+
+    assert 'id="supplement-fields" hidden' in html
+    for name in ("subject", "grade", "title"):
+        assert "required" not in _input_tag(html, name)
+    assert "required" not in _input_tag(html, "template")
+    assert "\u4e25\u683c AI \u6a21\u5f0f" not in html
+
+
+def test_single_prompt_js_defaults_to_fallback_and_system_template():
+    js = _read_web_file("static/app.js")
+
+    assert 'formData.set("strict_ai", "0")' in js
+    assert 'runData.set("template_mode", useSchoolTemplate.checked ? "upload" : "system")' in js
+    assert "if (useSchoolTemplate.checked && !templateInput.files.length)" in js
+    assert "\u8bf7\u4e0a\u4f20\u5b66\u6821 Word \u6a21\u677f" in js

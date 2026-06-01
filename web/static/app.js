@@ -308,7 +308,7 @@ function applyTaskDefaults(formData, task = {}) {
   formData.set("teaching_style", task.teaching_style || "常规启发式");
   formData.set("student_level", task.student_level || "常规混合水平");
   formData.set("generation_depth", task.generation_depth || "标准");
-  formData.set("strict_ai", "1");
+  formData.set("strict_ai", "0");
 }
 
 async function previewRequest(formData) {
@@ -357,6 +357,9 @@ function applyResult(data) {
   buildDiagnostics(data);
   setDownload(data.download_url || null);
   updateTeachingMethodGuard();
+  if (data.generation_backend === "local_fallback") {
+    showToast("AI 未配置，已使用本地示例内容生成初稿，可继续编辑后导出。");
+  }
 }
 
 async function submitLessonForm(event) {
@@ -418,7 +421,11 @@ async function submitLessonForm(event) {
     setSupplementVisible(false);
     applyResult(data);
     setStep("preview");
-    setStatus("教案内容已生成，请预览并确认字段。");
+    if (data.generation_backend === "local_fallback") {
+      setStatus("AI 未配置，已使用本地示例内容生成初稿，可继续编辑后导出。");
+    } else {
+      setStatus("教案内容已生成，请预览并确认字段。");
+    }
     if (data.download_url && updateTeachingMethodGuard()) {
       renderDelivery(data);
     }
