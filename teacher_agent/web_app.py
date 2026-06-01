@@ -157,10 +157,9 @@ def _infer_single_prompt_defaults(text: str, defaults: dict[str, str]) -> dict[s
                 merged["subject"] = keyword
                 break
 
-    if not merged.get("class_hour"):
-        hour_match = re.search(r"([0-9０-９一二三四五六七八九十]+)\s*课时", normalized)
-        if hour_match:
-            merged["class_hour"] = hour_match.group(0).strip()
+    hour_match = re.search(r"([0-9０-９一二三四五六七八九十]+)\s*课时", normalized)
+    if hour_match and ((not merged.get("class_hour")) or merged.get("class_hour") == "1课时"):
+        merged["class_hour"] = hour_match.group(0).strip()
 
     if not merged.get("class_type"):
         if "实训" in normalized:
@@ -201,7 +200,16 @@ def _normalize_teacher_web_fields(fields: dict[str, Any], task: Any) -> dict[str
     if not method:
         style = str(getattr(task, "teaching_style", "") or "")
         class_type = str(getattr(task, "class_type", "") or "")
-        if "项目" in style or "PBL" in style.upper() or "实训" in class_type:
+        class_hour_text = str(getattr(task, "class_hour", "") or normalized.get("class_hour", ""))
+        hour_match = re.search(r"(\d+)", class_hour_text.translate(str.maketrans("０１２３４５６７８９", "0123456789")))
+        hour_count = int(hour_match.group(1)) if hour_match else 1
+        process_text = str(normalized.get("teaching_process") or "")
+        if hour_count >= 9 or "课时分配" in process_text or "DRC" in process_text or "Gerber" in process_text:
+            if "PCB" in str(getattr(task, "title", "") or normalized.get("lesson_title", "")).upper():
+                method = "项目教学法、任务驱动法、演示教学法、分组协作、巡回指导、作品展示评价。围绕原理图绘制、PCB布局布线、DRC检查、Gerber输出和作品展示推进。"
+            else:
+                method = "项目教学法、任务驱动法、演示教学法、分组协作、巡回指导和作品展示评价。"
+        elif "项目" in style or "PBL" in style.upper() or "实训" in class_type:
             method = "项目驱动、小组协作、任务实践、案例分析。"
         elif "公开课" in class_type:
             method = "情境导入、启发提问、互动探究、评价反馈。"

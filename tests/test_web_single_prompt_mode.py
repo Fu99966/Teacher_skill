@@ -111,3 +111,14 @@ def test_single_prompt_js_defaults_to_fallback_and_system_template():
     assert 'runData.set("template_mode", useSchoolTemplate.checked ? "upload" : "system")' in js
     assert "if (useSchoolTemplate.checked && !templateInput.files.length)" in js
     assert "\u8bf7\u4e0a\u4f20\u5b66\u6821 Word \u6a21\u677f" in js
+
+
+def test_long_duration_scope_hint_is_wired():
+    html = _read_web_file("index.html")
+    js = _read_web_file("static/app.js")
+
+    assert 'id="scope-hint"' in html
+    assert "function parseClassHourCount" in js
+    assert "function updateLessonScopeHint" in js
+    assert "\u5df2\u8bc6\u522b\u4e3a\u957f\u8bfe\u65f6\u9879\u76ee/\u5355\u5143\u6559\u6848" in js
+    assert "\u5f53\u524d\u5185\u5bb9\u53ef\u80fd\u4ecd\u504f\u5355\u8bfe\u65f6" in js

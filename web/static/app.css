@@ -391,6 +391,7 @@ textarea:focus {
 }
 
 .status-line,
+.scope-hint,
 .method-warning {
   margin: 0 0 16px;
   padding: 12px 14px;
@@ -401,9 +402,18 @@ textarea:focus {
 }
 
 .status-line.error,
+.scope-hint.warning,
 .method-warning {
   background: rgba(216, 92, 71, 0.1);
   color: var(--error);
+}
+
+.scope-hint {
+  border: 1px solid rgba(120, 140, 93, 0.2);
+}
+
+.scope-hint.warning {
+  border-color: rgba(216, 92, 71, 0.22);
 }
 
 .method-warning {

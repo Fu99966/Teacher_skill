@@ -96,6 +96,74 @@ def infer_school_stage(grade: str) -> str:
     return "secondary"
 
 
+_CHINESE_NUMBER_MAP = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _parse_chinese_integer(text: str) -> int:
+    text = text.strip()
+    if not text:
+        return 0
+    if "十" not in text:
+        value = 0
+        for char in text:
+            if char not in _CHINESE_NUMBER_MAP:
+                return 0
+            value = value * 10 + _CHINESE_NUMBER_MAP[char]
+        return value
+
+    left, _, right = text.partition("十")
+    tens = _CHINESE_NUMBER_MAP.get(left, 1) if left else 1
+    ones = _CHINESE_NUMBER_MAP.get(right, 0) if right else 0
+    return tens * 10 + ones
+
+
+def parse_class_hour_count(class_hour: str) -> int:
+    """Parse a class-hour string such as 32课时, 共十六课时, or 三课时."""
+    text = str(class_hour or "").strip()
+    if not text:
+        return 1
+    text = text.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+
+    digit_match = re.search(r"(\d+)", text)
+    if digit_match:
+        try:
+            return max(1, int(digit_match.group(1)))
+        except ValueError:
+            return 1
+
+    chinese_match = re.search(r"([零〇一二两三四五六七八九十]+)\s*(?:课时|节|课)?", text)
+    if chinese_match:
+        parsed = _parse_chinese_integer(chinese_match.group(1))
+        if parsed > 0:
+            return parsed
+    return 1
+
+
+def infer_lesson_scope(class_hour: str, class_type: str = "") -> str:
+    """Infer whether fallback should draft a single lesson, unit lesson, or project lesson."""
+    count = parse_class_hour_count(class_hour)
+    if "实训" in str(class_type or "") and count >= 8:
+        return "project_lesson"
+    if count <= 2:
+        return "single_lesson"
+    if count <= 8:
+        return "unit_lesson"
+    return "project_lesson"
+
+
 def _stage_name(stage: str) -> str:
     return {
         "primary": "小学阶段",
@@ -151,6 +219,7 @@ def backfill_empty_fields_with_local_fallback(
     material: str,
     class_hour: str,
     required_fields: list[str],
+    class_type: str = "",
 ) -> dict[str, str]:
     normalized_fields = _normalize_dynamic_fields(required_fields)
     result = coerce_dynamic_fields(fields if isinstance(fields, dict) else {}, normalized_fields)
@@ -170,6 +239,7 @@ def backfill_empty_fields_with_local_fallback(
         title=title,
         material=material,
         class_hour=class_hour,
+        class_type=class_type,
         dynamic_fields=normalized_fields,
     )
     for field in normalized_fields:
@@ -255,39 +325,87 @@ def _local_fallback_fields(
     material: str,
     class_hour: str,
     dynamic_fields: list[str],
+    class_type: str = "",
 ) -> dict[str, str]:
     material_hint = re.sub(r"\s+", " ", material).strip()
     if len(material_hint) > 140:
         material_hint = material_hint[:140] + "..."
+    scope = infer_lesson_scope(class_hour, class_type)
+    hour_count = parse_class_hour_count(class_hour)
+    hour_text = class_hour.strip() or f"{hour_count}课时"
+    title_text = title or "本课题"
+    is_pcb = "PCB" in title_text.upper()
+
+    single_process = f"一、导入新课：创设与《{title_text}》相关的问题情境，唤起学生已有经验。\n二、新知探究：围绕教学内容组织阅读、观察、讨论和归纳。\n三、巩固应用：完成基础练习与变式任务，教师即时反馈。\n四、课堂总结：学生梳理本课收获和仍需追问的问题。"
+    unit_process = f"一、单元导入：明确《{title_text}》的学习主题、核心问题和阶段目标。\n二、核心知识学习：分课时梳理关键概念、方法和典型案例，形成知识网络。\n三、任务训练：围绕核心知识设置分层任务，组织学生完成练习、讨论和展示。\n四、综合应用：设计综合情境任务，引导学生迁移运用并修正理解偏差。\n五、评价总结：通过任务单、展示互评和教师点评完成单元回顾。"
+    if is_pcb and scope == "project_lesson":
+        project_process = f"本项目共{hour_text}，围绕“完成一块物联网节点控制板PCB设计”展开。\n一、项目总任务：学生以小组为单位完成从需求分析、原理图绘制、封装检查、PCB布局布线、DRC检查到Gerber文件输出的完整设计流程。\n二、课时分配表：\n第一阶段：项目导入与PCB基础认知（4课时），认识PCB设计流程、工程规范和项目评价标准。\n第二阶段：原理图设计与元件封装检查（6课时），完成原理图绘制、网络标号、元件封装匹配与电气规则初查。\n第三阶段：PCB布局与布线规范训练（8课时），完成板框设置、元件布局、关键信号布线、电源与地线处理。\n第四阶段：DRC检查与问题修改（6课时），根据DRC报告定位短路、间距、未连接网络等问题并迭代修改。\n第五阶段：Gerber文件输出与项目文档整理（4课时），完成Gerber、钻孔文件、BOM和项目说明文档整理。\n第六阶段：作品展示、互评与总结提升（4课时），开展小组汇报、作品互评、教师点评和工程经验复盘。\n三、阶段任务：每个阶段形成可检查的过程性成果，教师进行巡回指导和即时反馈。\n四、项目产出：原理图文件、PCB布局布线文件、DRC检查记录、Gerber输出文件、项目说明书和展示汇报。\n五、评价方式：过程表现、阶段成果、工程规范、问题修正质量、小组协作和最终作品展示综合评价。\n六、总结提升：引导学生复盘PCB设计中的规则意识、质量意识和工程迭代方法。"
+    else:
+        project_process = f"本项目共{hour_text}，围绕《{title_text}》设计项目化整体教学方案。\n一、项目总任务：明确真实任务情境、成果要求和评价标准，学生以小组方式完成完整项目。\n二、课时分配表：项目导入与任务拆解（2课时）；核心知识学习与方法示范（{max(2, hour_count // 4)}课时）；阶段任务训练与巡回指导（{max(3, hour_count // 3)}课时）；综合应用与成果完善（{max(2, hour_count // 4)}课时）；作品展示、评价反馈与总结提升（2课时）。\n三、阶段任务：按“认知准备—方法训练—项目实践—成果完善—展示评价”推进，每阶段都有明确学习产出。\n四、项目产出：学习任务单、阶段成果、项目作品、展示汇报和反思记录。\n五、评价方式：过程评价、成果评价、小组互评和教师评价结合。\n六、总结提升：复盘知识迁移、合作过程和质量改进方法。"
+
+    if scope == "project_lesson" and is_pcb:
+        goals = "1. 知识目标：理解PCB设计流程、元件封装、布局布线、DRC检查、Gerber输出等核心知识。\n2. 能力目标：能完成从原理图到PCB布局布线、规则检查和文件输出的完整设计任务。\n3. 素养目标：形成工程规范意识、团队协作意识和质量改进意识。"
+        teaching_method = "采用项目教学法、任务驱动法、演示教学法、分组协作、巡回指导和作品展示评价相结合的方式。教师围绕原理图绘制、PCB布局布线、DRC检查、Gerber输出和作品展示组织阶段任务，学生在真实项目实践中完成设计、检查、修改和汇报。"
+        homework = "阶段作业：\n1. 完成PCB设计流程思维导图；\n2. 完成原理图绘制与封装检查；\n3. 提交PCB布局布线文件；\n4. 完成DRC检查记录；\n5. 整理Gerber输出文件和项目说明书。"
+        reflection = "课后重点反思：学生是否掌握PCB设计完整流程；是否能发现并修改DRC问题；小组协作和工程规范意识是否提升；后续是否需要加强封装、布线和设计规则训练。"
+        key_points = "PCB设计流程、原理图绘制、封装匹配、布局布线规范、DRC检查和Gerber文件输出。"
+        difficult_points = "将工程规范落实到PCB布局布线细节中，并能依据DRC检查结果定位问题、修正设计。"
+    elif scope == "project_lesson":
+        goals = f"1. 知识目标：系统理解《{title_text}》项目任务所需的核心概念、方法流程和评价标准。\n2. 能力目标：能按阶段完成项目任务，形成可展示、可评价的学习成果。\n3. 素养目标：提升任务规划、团队协作、问题解决和持续改进意识。"
+        teaching_method = "采用项目教学法、任务驱动法、演示教学法、分组协作、巡回指导和作品展示评价相结合的方式，围绕项目阶段任务推动学生完成学习产出。"
+        homework = f"阶段作业：\n1. 完成《{title_text}》项目任务拆解表；\n2. 完成阶段学习任务单；\n3. 提交项目过程成果；\n4. 根据评价反馈修改完善作品；\n5. 整理项目说明和个人反思。"
+        reflection = f"课后重点关注学生是否理解《{title_text}》项目完整流程，是否能按阶段完成任务并修正问题，小组协作、表达展示和质量改进意识是否提升。"
+        key_points = f"《{title_text}》项目任务流程、阶段产出要求和综合应用方法。"
+        difficult_points = "把分散知识整合到项目任务中，并持续根据反馈改进成果质量。"
+    elif scope == "unit_lesson":
+        goals = f"1. 知识目标：系统理解《{title_text}》单元核心概念和知识结构。\n2. 能力目标：能通过任务训练完成知识迁移和综合应用。\n3. 素养目标：提升持续探究、合作表达和反思改进能力。"
+        teaching_method = "采用单元整体教学、任务驱动、小组讨论、案例分析和展示评价相结合的方式，帮助学生形成知识结构并完成综合应用。"
+        homework = f"基础任务：整理《{title_text}》单元知识结构图。\n提升任务：完成综合应用练习并说明解题思路。\n拓展任务：围绕单元核心问题提出一个新的应用场景。"
+        reflection = f"课后关注学生是否形成《{title_text}》的整体知识框架，是否能在综合任务中迁移应用，并据此调整后续分层训练。"
+        key_points = f"《{title_text}》单元核心知识、方法链条和综合应用任务。"
+        difficult_points = "帮助学生把多课时内容组织成稳定的知识结构，并完成迁移应用。"
+    else:
+        goals = f"1. 知识目标：理解《{title_text}》的核心内容与关键方法。\n2. 能力目标：能结合材料完成分析、表达和迁移应用。\n3. 素养目标：在学习过程中提升合作探究与反思能力。"
+        teaching_method = f"采用案例教学、任务驱动、小组讨论和实物演示相结合的方式。通过生活案例导入《{title_text}》相关概念，组织学生观察分析，再以小组讨论完成应用场景分析。"
+        homework = f"基础题：整理《{title_text}》关键知识。\n提升题：完成一道迁移应用任务。\n拓展题：结合生活或教材补充材料提出一个探究问题。"
+        reflection = f"课后重点观察学生对《{title_text}》核心方法的掌握情况，是否能在新情境中表达和应用；根据反馈调整后续教学节奏和分层练习。"
+        key_points = f"围绕《{title_text}》掌握本课核心知识、关键方法和课堂产出要求。"
+        difficult_points = "将抽象知识转化为可观察、可操作、可表达的学习任务，并帮助不同层次学生完成理解迁移。"
+
+    teaching_process = {
+        "single_lesson": single_process,
+        "unit_lesson": unit_process,
+        "project_lesson": project_process,
+    }[scope]
 
     base: dict[str, str] = {
-        "lesson_title": title,
+        "lesson_title": title_text,
         "subject": subject,
         "grade": grade,
         "teaching_date": "2026年5月29日",
         "class_name": grade,
-        "class_type": "新授课",
-        "class_hour": class_hour,
-        "teaching_goals": f"1. 知识目标：理解《{title}》的核心内容与关键方法。\n2. 能力目标：能结合材料完成分析、表达和迁移应用。\n3. 素养目标：在学习过程中提升合作探究与反思能力。",
-        "key_points": f"围绕《{title}》掌握本课核心知识、关键方法和课堂产出要求。",
-        "difficult_points": "将抽象知识转化为可观察、可操作、可表达的学习任务，并帮助不同层次学生完成理解迁移。",
-        "teaching_key_difficult": f"重点：理解《{title}》的核心知识与方法。\n难点：把知识迁移到新的情境任务中。",
+        "class_type": class_type or ("项目实训课" if scope == "project_lesson" else "新授课"),
+        "class_hour": hour_text,
+        "teaching_goals": goals,
+        "key_points": key_points,
+        "difficult_points": difficult_points,
+        "teaching_key_difficult": f"重点：{key_points}\n难点：{difficult_points}",
         "teaching_preparation": "多媒体课件、学习任务单、板书材料；学生课前阅读教材并标注疑问。",
-        "teaching_environment": f"标准多媒体教室，配备投影设备、白板或智慧黑板，网络畅通。如本课《{title}》涉及实验或实训环节，应具备相应的操作台和演示器材。",
-        "teaching_aids": f"PPT课件、教材、学习任务单。如《{title}》涉及实物展示或实验，准备对应的教具和演示材料。",
-        "teaching_method": f"采用案例教学、任务驱动、小组讨论和实物演示相结合的方式。通过生活案例导入《{title}》相关概念，组织学生观察分析，再以小组讨论完成应用场景分析。",
-        "student_analysis": f"{grade}学生已有一定基础，但对《{title}》中的关键概念和迁移应用仍需要教师提供支架。",
-        "teaching_process": f"一、导入新课：创设与《{title}》相关的问题情境，唤起学生已有经验。\n二、新知探究：围绕教学内容组织阅读、观察、讨论和归纳。\n三、巩固应用：完成基础练习与变式任务，教师即时反馈。\n四、课堂总结：学生梳理本课收获和仍需追问的问题。",
+        "teaching_environment": f"标准多媒体教室，配备投影设备、白板或智慧黑板，网络畅通。如本课《{title_text}》涉及实验或实训环节，应具备相应的操作台和演示器材。",
+        "teaching_aids": f"PPT课件、教材、学习任务单。如《{title_text}》涉及实物展示或实验，准备对应的教具和演示材料。",
+        "teaching_method": teaching_method,
+        "student_analysis": f"{grade}学生已有一定基础，但对《{title_text}》中的关键概念和迁移应用仍需要教师提供支架。",
+        "teaching_process": teaching_process,
         "teacher_activity": "创设情境、提出问题、组织探究、示范方法、反馈评价并总结提升。",
         "student_activity": "观察材料、独立思考、小组交流、完成任务单并进行展示或互评。",
         "design_intent": "通过问题驱动和分层任务，让学生经历理解、应用、表达和反思的完整学习过程。",
-        "blackboard_design": f"{title}\n一、核心问题\n二、关键方法\n三、课堂任务\n四、总结提升",
-        "homework": f"基础题：整理《{title}》关键知识。\n提升题：完成一道迁移应用任务。\n拓展题：结合生活或教材补充材料提出一个探究问题。",
-        "reflection": f"课后重点观察学生对《{title}》核心方法的掌握情况，是否能在新情境中表达和应用；根据反馈调整后续教学节奏和分层练习。",
-        "warm_up": f"以《{title}》相关图片、问题或生活情境导入，快速唤起学生已有经验。",
+        "blackboard_design": f"{title_text}\n一、核心问题\n二、关键方法\n三、课堂任务\n四、总结提升",
+        "homework": homework,
+        "reflection": reflection,
+        "warm_up": f"以《{title_text}》相关图片、问题或生活情境导入，快速唤起学生已有经验。",
         "safety_rules": "活动前明确材料使用和课堂秩序要求；实验或操作环节需按教师指令进行。",
         "safety_precautions": "提醒学生按规范操作，注意器材、用电、走动和小组协作安全。",
-        "core_training": f"围绕《{title}》设置基础识记、方法应用和迁移表达三个层级训练。",
+        "core_training": f"围绕《{title_text}》设置基础识记、方法应用和迁移表达三个层级训练。",
         "assessment": "采用课堂观察、任务单完成情况、小组展示和出口卡进行过程性评价。",
     }
     if material_hint:
@@ -549,6 +667,7 @@ def draft_lesson_fields_with_source(
                 title=title,
                 material=material,
                 class_hour=class_hour,
+                class_type=class_type,
                 required_fields=fields,
             )
             return data, "deepseek_with_local_backfill"
@@ -564,6 +683,7 @@ def draft_lesson_fields_with_source(
                 title=title,
                 material=material,
                 class_hour=class_hour,
+                class_type=class_type,
                 dynamic_fields=fields,
             ),
             "local_fallback",

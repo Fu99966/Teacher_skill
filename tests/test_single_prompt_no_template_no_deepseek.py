@@ -15,7 +15,7 @@ import teacher_agent.web_app as web_app
 PROMPT = (
     "\u5e2e\u6211\u751f\u6210\u4e00\u4efd 24\u7269\u8054\u7f511\u73ed"
     "\u300aPCB\u677f\u8bbe\u8ba1\u300b\u7684\u5b9e\u8bad\u8bfe\u6559\u6848"
-    "\uff0c\u9002\u5408\u9879\u76ee\u5f0f\u6559\u5b66\uff0c\u8bfe\u65f6 2 \u8bfe\u65f6\u3002"
+    "\uff0c\u9002\u5408\u9879\u76ee\u5f0f\u6559\u5b66\uff0c\u8bfe\u65f632\u8bfe\u65f6\u3002"
 )
 
 
@@ -93,6 +93,7 @@ def test_single_prompt_without_template_or_deepseek_uses_system_template_and_fal
         agent_task = preview["agent_task"]
         assert agent_task["title"] == "PCB\u677f\u8bbe\u8ba1"
         assert agent_task["grade"] == "24\u7269\u8054\u7f511\u73ed"
+        assert "32" in agent_task["class_hour"]
         assert not preview.get("missing_fields")
 
         run_status, data = _post_multipart(
@@ -112,8 +113,15 @@ def test_single_prompt_without_template_or_deepseek_uses_system_template_and_fal
         fields = data.get("fields") or {}
         assert fields, data
         assert fields.get("lesson_title") or fields.get("\u8bfe\u9898")
-        assert fields.get("teaching_process") or fields.get("\u4e3b\u8981\u6559\u5b66\u5185\u5bb9")
-        assert fields.get("teaching_method") or fields.get("\u6559\u5b66\u65b9\u6cd5\u7684\u8fd0\u7528")
+        assert "32" in str(fields.get("class_hour") or fields.get("\u8bfe\u65f6") or "")
+
+        process = fields.get("teaching_process") or fields.get("\u4e3b\u8981\u6559\u5b66\u5185\u5bb9") or ""
+        assert "\u9879\u76ee" in process
+        assert "\u9636\u6bb5" in process
+        assert "\u8bfe\u65f6\u5206\u914d" in process
+
+        method = fields.get("teaching_method") or fields.get("\u6559\u5b66\u65b9\u6cd5\u7684\u8fd0\u7528") or ""
+        assert "\u9879\u76ee\u6559\u5b66\u6cd5" in method or "\u4efb\u52a1\u9a71\u52a8" in method
 
         download_url = data.get("download_url")
         if not download_url:

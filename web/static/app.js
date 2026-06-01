@@ -8,6 +8,7 @@ const generateButton = document.querySelector("#generate-button");
 const previewCard = document.querySelector("#preview-card");
 const previewGroupsRoot = document.querySelector("#preview-groups");
 const statusLine = document.querySelector("#status-line");
+const scopeHint = document.querySelector("#scope-hint");
 const methodWarning = document.querySelector("#method-warning");
 const deriveMethodButton = document.querySelector("#derive-method-button");
 const exportButton = document.querySelector("#export-button");
@@ -181,6 +182,43 @@ function fieldValue(fields, canonicalKey) {
   return fields[key] ?? "";
 }
 
+function parseClassHourCount(value) {
+  const text = String(value || "").replace(/[０-９]/g, (char) =>
+    String.fromCharCode(char.charCodeAt(0) - 0xfee0)
+  );
+  const digitMatch = text.match(/(\d+)/);
+  if (digitMatch) return Math.max(1, Number.parseInt(digitMatch[1], 10) || 1);
+
+  const chineseMap = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  const chineseMatch = text.match(/([一二两三四五六七八九十]+)/);
+  if (!chineseMatch) return 1;
+  const raw = chineseMatch[1];
+  if (!raw.includes("十")) return chineseMap[raw] || 1;
+  const [left, right] = raw.split("十");
+  const tens = left ? chineseMap[left] || 1 : 1;
+  const ones = right ? chineseMap[right] || 0 : 0;
+  return Math.max(1, tens * 10 + ones);
+}
+
+function updateLessonScopeHint(fields = collectEditedFields()) {
+  if (!scopeHint) return;
+  const count = parseClassHourCount(fieldValue(fields, "class_hour"));
+  if (count < 9) {
+    scopeHint.hidden = true;
+    scopeHint.classList.remove("warning");
+    scopeHint.textContent = "";
+    return;
+  }
+
+  const processText = String(fieldValue(fields, "teaching_process") || "");
+  const hasProjectShape = /项目|阶段|课时分配/.test(processText);
+  scopeHint.hidden = false;
+  scopeHint.classList.toggle("warning", !hasProjectShape);
+  scopeHint.textContent = hasProjectShape
+    ? "已识别为长课时项目/单元教案，系统将按项目整体教学方案生成。"
+    : "当前内容可能仍偏单课时，建议重新生成或手动补充课时分配。";
+}
+
 function hasTeachingMethod(fields) {
   return String(fieldValue(fields, "teaching_method") || "").trim().length > 0;
 }
@@ -214,6 +252,7 @@ function createFieldEditor(fields, canonicalKey) {
     setDownload(null);
     deliveryCard.hidden = true;
     updateTeachingMethodGuard();
+    updateLessonScopeHint();
   });
 
   item.append(label, textarea);
@@ -255,6 +294,7 @@ function renderPreview(fields) {
   }
 
   updateTeachingMethodGuard();
+  updateLessonScopeHint(fields);
 }
 
 function collectEditedFields() {
