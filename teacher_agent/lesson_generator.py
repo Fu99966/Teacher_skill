@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,75 @@ REFINE_ACTIONS = {
 
 class LessonGenerationError(RuntimeError):
     """Raised when a generated response cannot be parsed into template fields."""
+
+
+FIELD_LABEL_TITLES = {
+    "教学方法的运用",
+    "主要教学内容",
+    "教学目的",
+    "重点难点",
+    "作业",
+    "课后小记",
+    "教学方法",
+    "教学过程",
+    "教学目标",
+    "教学重难点",
+    "作业设计",
+    "教学反思",
+}
+
+
+def _compact_text(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "")).strip()
+
+
+def _extract_title_from_request(agent_request: str) -> str:
+    match = re.search(r"《([^》]{1,80})》", str(agent_request or ""))
+    return match.group(1).strip() if match else ""
+
+
+def sanitize_lesson_title(title: str, agent_request: str, fallback_title: str = "") -> str:
+    """Prevent template field labels such as 教学方法的运用 from becoming the lesson title."""
+    request_title = _extract_title_from_request(agent_request)
+    if request_title:
+        return request_title
+
+    cleaned = str(title or "").strip()
+    if cleaned and _compact_text(cleaned) not in {_compact_text(label) for label in FIELD_LABEL_TITLES}:
+        return cleaned
+
+    fallback = str(fallback_title or "").strip()
+    if fallback and _compact_text(fallback) not in {_compact_text(label) for label in FIELD_LABEL_TITLES}:
+        return fallback
+
+    return "未命名课题"
+
+
+def sanitize_material_hint(material: str, agent_request: str = "") -> str:
+    """Keep natural-language generation prompts out of 教材依据."""
+    cleaned = re.sub(r"\s+", " ", str(material or "")).strip()
+    if not cleaned:
+        return ""
+
+    compact_material = _compact_text(cleaned)
+    compact_request = _compact_text(agent_request)
+    if compact_request and compact_material:
+        ratio = SequenceMatcher(None, compact_material, compact_request).ratio()
+        if compact_material == compact_request or ratio >= 0.72:
+            return ""
+
+    generation_markers = ("帮我生成", "生成一份", "写一份", "做一份", "请生成", "帮我写")
+    prompt_markers = ("教案", "适合项目式教学", "课时")
+    looks_like_request = any(marker in cleaned for marker in generation_markers) or (
+        cleaned.startswith(("帮我", "请")) and "教案" in cleaned
+    )
+    if looks_like_request and any(marker in cleaned for marker in prompt_markers):
+        return ""
+
+    if "《" in cleaned and "》" in cleaned and "课时" in cleaned and "教案" in cleaned:
+        return ""
+
+    return cleaned
 
 
 def infer_school_stage(grade: str) -> str:
@@ -327,19 +397,13 @@ def _local_fallback_fields(
     dynamic_fields: list[str],
     class_type: str = "",
 ) -> dict[str, str]:
-    material_hint = re.sub(r"\s+", " ", material).strip()
-    prompt_like_material = bool(
-        re.search(r"(帮我|生成|写一份|做一份).{0,30}(教案|备课|教学设计)", material_hint)
-        or re.search(r"(适合|课时|项目式|公开课|常规课).{0,20}教学", material_hint)
-    )
-    if prompt_like_material:
-        material_hint = ""
+    material_hint = sanitize_material_hint(material)
     if len(material_hint) > 140:
         material_hint = material_hint[:140] + "..."
     scope = infer_lesson_scope(class_hour, class_type)
     hour_count = parse_class_hour_count(class_hour)
     hour_text = class_hour.strip() or f"{hour_count}课时"
-    title_text = title or "本课题"
+    title_text = sanitize_lesson_title(title, material, title)
     is_pcb = "PCB" in title_text.upper()
 
     single_process = f"一、导入新课：创设与《{title_text}》相关的问题情境，唤起学生已有经验。\n二、新知探究：围绕教学内容组织阅读、观察、讨论和归纳。\n三、巩固应用：完成基础练习与变式任务，教师即时反馈。\n四、课堂总结：学生梳理本课收获和仍需追问的问题。"

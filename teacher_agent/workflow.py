@@ -8,7 +8,7 @@ from urllib.parse import quote
 from .docx_filler import fill_docx_template
 from .few_shot_examples import select_few_shot_examples
 from .history_store import HistoryStore
-from .lesson_generator import draft_lesson_document_fields_with_source
+from .lesson_generator import draft_lesson_document_fields_with_source, sanitize_lesson_title
 from .preview_renderer import render_docx_pdf_preview
 from .rag_context import build_knowledge_context
 from .teacher_agents import review_lesson_quality, revise_lesson_after_review
@@ -233,7 +233,9 @@ class TeacherWorkflow:
         output_dir: Path,
         preview_dir: Path,
     ) -> dict:
-        title = str(fields.get("lesson_title") or "教案")
+        title = sanitize_lesson_title(str(fields.get("lesson_title") or ""), "", str(fields.get("title") or "教案"))
+        fields = dict(fields)
+        fields["lesson_title"] = title
         grade = str(fields.get("grade") or "年级")
         subject = str(fields.get("subject") or "学科")
         safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")

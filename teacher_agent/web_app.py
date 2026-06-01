@@ -25,6 +25,8 @@ from .lesson_generator import (
     LessonGenerationError,
     check_generation_health,
     refine_lesson_field,
+    sanitize_lesson_title,
+    sanitize_material_hint,
 )
 from .sample_template import create_sample_template
 from .template_parser import analyze_template
@@ -173,10 +175,23 @@ def _infer_single_prompt_defaults(text: str, defaults: dict[str, str]) -> dict[s
     return merged
 
 
-def _normalize_teacher_web_fields(fields: dict[str, Any], task: Any) -> dict[str, Any]:
+def _sanitize_agent_task_title(task: Any, agent_request: str, fallback_title: str = "") -> Any:
+    clean_title = sanitize_lesson_title(getattr(task, "title", ""), agent_request, fallback_title)
+    if hasattr(task, "title"):
+        task.title = clean_title
+    if hasattr(task, "missing_fields") and clean_title:
+        task.missing_fields = [field for field in task.missing_fields if field != "title"]
+    return task
+
+
+def _normalize_teacher_web_fields(fields: dict[str, Any], task: Any, agent_request: str = "") -> dict[str, Any]:
     """Keep the single-prompt UI populated even when the system template uses legacy keys."""
     normalized = dict(fields or {})
-    normalized.setdefault("lesson_title", getattr(task, "title", "") or normalized.get("title", ""))
+    normalized["lesson_title"] = sanitize_lesson_title(
+        str(normalized.get("lesson_title") or ""),
+        agent_request,
+        str(getattr(task, "title", "") or normalized.get("title", "")),
+    )
     normalized.setdefault("subject", getattr(task, "subject", ""))
     normalized.setdefault("grade", getattr(task, "grade", ""))
     normalized.setdefault("class_name", getattr(task, "grade", ""))
@@ -940,7 +955,9 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "generation_depth": str(payload.get("generation_depth") or ""),
         }
         defaults = _infer_single_prompt_defaults(agent_request, defaults)
+        defaults["title"] = sanitize_lesson_title(defaults.get("title", ""), agent_request)
         task = route_task(agent_request, defaults)
+        _sanitize_agent_task_title(task, agent_request, defaults.get("title", ""))
         plan = build_plan(task)
         self._send(
             *_json_bytes(
@@ -987,7 +1004,9 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "generation_depth": generation_depth if generation_depth != DEFAULT_GENERATION_DEPTH else "",
         }
         defaults = _infer_single_prompt_defaults(agent_request, defaults)
+        defaults["title"] = sanitize_lesson_title(defaults.get("title", ""), agent_request)
         task = route_task(agent_request, defaults)
+        _sanitize_agent_task_title(task, agent_request, defaults.get("title", ""))
         plan = build_plan(task)
 
         if task.missing_fields:
@@ -1019,9 +1038,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             )
             return
 
+        clean_material = sanitize_material_hint(material, agent_request)
         lesson_request = LessonRequest(
             task.subject, task.grade, task.title,
-            task.class_hour, material or agent_request,
+            task.class_hour, clean_material,
             task.class_type, task.teaching_style,
             task.student_level, task.generation_depth,
             strict_ai, creative_mode,
@@ -1035,7 +1055,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         from .agent_core.executor import AgentExecutor
 
         task_dict = task.to_dict()
-        task_dict["material"] = material or agent_request
+        task_dict["material"] = clean_material
         session_id = uuid.uuid4().hex[:12]
 
         state = AgentRunState(
@@ -1053,7 +1073,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         executor = AgentExecutor(registry, checkpoint)
         agent_graph = build_agent_graph(task)
         result = executor.run(agent_graph, state)
-        result.state.fields = _normalize_teacher_web_fields(result.state.fields or {}, task)
+        result.state.fields = _normalize_teacher_web_fields(result.state.fields or {}, task, agent_request)
 
         export_result = result.state.export_result or {}
         llm_status = check_generation_health(probe=False).to_dict()
@@ -1124,6 +1144,21 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if not isinstance(template_id, str):
             raise ValueError("缺少模板信息")
 
+        request_context = payload.get("request_context") if isinstance(payload.get("request_context"), dict) else {}
+        agent_request = str(
+            request_context.get("raw_request")
+            or request_context.get("agent_request")
+            or payload.get("agent_request")
+            or ""
+        )
+        fallback_title = str(request_context.get("title") or fields.get("title") or "")
+        fields = dict(fields)
+        fields["lesson_title"] = sanitize_lesson_title(
+            str(fields.get("lesson_title") or ""),
+            agent_request,
+            fallback_title,
+        )
+
         template_path = _template_from_id(template_id)
         workflow = TeacherWorkflow()
         result = workflow.export_document(fields, template_path, OUTPUT_DIR, PREVIEW_DIR)
@@ -1141,7 +1176,6 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if isinstance(prior_trace, list):
             result["workflow_trace"] = prior_trace + result["workflow_trace"]
 
-        request_context = payload.get("request_context") if isinstance(payload.get("request_context"), dict) else {}
         review_report = payload.get("review_report") if isinstance(payload.get("review_report"), dict) else {}
         generation_backend = str(payload.get("generation_backend") or "manual_export")
         template_mode = result["template_analysis"].get("mode", "unknown")
