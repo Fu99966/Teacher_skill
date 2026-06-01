@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Teacher Skill 教案助手</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260601-single-prompt" />
+    <link rel="stylesheet" href="/static/app.css?v=20260601-v11-polish" />
   </head>
   <body>
     <div class="app-shell">
@@ -28,6 +28,7 @@
         <section class="main-card" aria-labelledby="main-title">
           <p class="eyebrow">一句话生成教案</p>
           <h2 id="main-title">直接说你想要的教案</h2>
+          <p class="intro-copy">输入一句备课需求，系统会生成可编辑教案；需要学校格式时，再勾选上传 Word 模板。</p>
 
           <ol class="step-bar" aria-label="生成步骤">
             <li class="active" data-step="input">输入需求</li>
@@ -48,6 +49,12 @@
               ></textarea>
             </label>
 
+            <div class="example-row" aria-label="示例需求">
+              <button type="button" class="example-chip" data-example="training">实训课示例</button>
+              <button type="button" class="example-chip" data-example="open">公开课示例</button>
+              <button type="button" class="example-chip" data-example="regular">常规课示例</button>
+            </div>
+
             <div class="supplement-fields" id="supplement-fields" hidden>
               <p>还差一点信息，请补齐后再生成。</p>
               <div class="field-grid">
@@ -66,6 +73,17 @@
               </div>
             </div>
 
+            <label class="template-toggle">
+              <input id="use-school-template" name="use_school_template" type="checkbox" />
+              <span>使用学校 Word 模板</span>
+            </label>
+
+            <label class="field wide template-upload" id="template-upload-wrap" hidden>
+              <span>上传 .docx 模板</span>
+              <input id="template-input" name="template" type="file" accept=".docx" />
+              <small>勾选后必须上传模板；系统会按模板字段写入内容，并尽量保持原格式。</small>
+            </label>
+
             <label class="field wide">
               <span>教材内容 / 补充资料（可选）</span>
               <textarea
@@ -74,17 +92,6 @@
                 rows="7"
                 placeholder="可以粘贴教材、课程标准、实训要求或学校补充说明；不填写也能生成通用版。"
               ></textarea>
-            </label>
-
-            <label class="template-toggle">
-              <input id="use-school-template" name="use_school_template" type="checkbox" />
-              <span>使用学校 Word 模板</span>
-            </label>
-
-            <label class="field wide template-upload" id="template-upload-wrap" hidden>
-              <span>上传学校 Word 模板（.docx）</span>
-              <input id="template-input" name="template" type="file" accept=".docx" />
-              <small>勾选后必须上传模板；系统会按模板字段写入内容，并尽量保持原格式。</small>
             </label>
 
             <div class="form-actions">
@@ -116,7 +123,27 @@
         <section class="delivery-card" id="delivery-card" hidden aria-labelledby="delivery-title">
           <p class="eyebrow">已完成</p>
           <h2 id="delivery-title">✓ Word 已生成</h2>
-          <p id="delivery-score" class="delivery-score" hidden></p>
+
+          <div class="quality-panel" aria-label="教案质量判断">
+            <div>
+              <span>教案质量判断</span>
+              <strong id="quality-judgment">可提交</strong>
+            </div>
+            <div>
+              <span>评分</span>
+              <strong id="quality-score">--/100</strong>
+            </div>
+            <div>
+              <span>主要风险</span>
+              <p id="quality-risk">无</p>
+            </div>
+            <div>
+              <span>建议</span>
+              <p id="quality-suggestion">已完成基础交付检查，可下载 Word 教案。</p>
+            </div>
+          </div>
+
+          <h3>交付检查</h3>
           <ul class="delivery-checklist" id="delivery-checklist"></ul>
           <div class="delivery-actions">
             <a class="primary-button" id="download-link" href="#" aria-disabled="true">下载 Word 教案</a>
@@ -143,6 +170,6 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-    <script src="/static/app.js?v=20260601-single-prompt"></script>
+    <script src="/static/app.js?v=20260601-v11-polish"></script>
   </body>
 </html>

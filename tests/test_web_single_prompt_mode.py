@@ -26,6 +26,7 @@ def test_homepage_is_single_prompt_mode():
     assert "工作流图" not in html
     assert "Agent trace" not in html
     assert "高级诊断" in html
+    assert "教案质量判断" in html
 
 
 def test_step_bar_has_teacher_friendly_steps():
@@ -60,10 +61,27 @@ def test_teaching_method_guard_and_local_derive_hook_are_wired():
     assert "teaching_method" in js
 
 
+def test_example_prompt_buttons_are_wired():
+    html = _read_web_file("index.html")
+    js = _read_web_file("static/app.js")
+
+    assert "实训课示例" in html
+    assert "公开课示例" in html
+    assert "常规课示例" in html
+    assert "PCB板设计" in js
+    assert "传感器基础" in js
+    assert "物联网通信基础" in js
+    assert "examplePrompts" in js
+    assert "requestSubmit" not in js.split("document.querySelectorAll(\"[data-example]\")", 1)[-1].split("lessonForm.addEventListener", 1)[0]
+
+
 def test_css_contains_card_layout_step_bar_and_toast():
     css = _read_web_file("static/app.css")
 
+    assert "max-width" in css
     assert ".main-card" in css
     assert ".step-bar" in css
+    assert ".preview-card" in css
+    assert ".delivery-card" in css
     assert ".toast" in css
     assert "width: min(780px" in css

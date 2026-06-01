@@ -14,7 +14,10 @@ const exportButton = document.querySelector("#export-button");
 const regenerateButton = document.querySelector("#regenerate-button");
 const deliveryCard = document.querySelector("#delivery-card");
 const deliveryChecklist = document.querySelector("#delivery-checklist");
-const deliveryScore = document.querySelector("#delivery-score");
+const qualityJudgment = document.querySelector("#quality-judgment");
+const qualityScore = document.querySelector("#quality-score");
+const qualityRisk = document.querySelector("#quality-risk");
+const qualitySuggestion = document.querySelector("#quality-suggestion");
 const downloadLink = document.querySelector("#download-link");
 const backEditButton = document.querySelector("#back-edit-button");
 const restartButton = document.querySelector("#restart-button");
@@ -25,6 +28,12 @@ const historyList = document.querySelector("#history-list");
 const refreshHistoryButton = document.querySelector("#refresh-history-button");
 const diagnosticsOutput = document.querySelector("#diagnostics-output");
 const toast = document.querySelector("#toast");
+
+const examplePrompts = {
+  training: "帮我生成一份 24物联网1班《PCB板设计》的实训课教案，适合项目式教学，课时 2 课时。",
+  open: "帮我生成一份《传感器基础》的公开课教案，要求有情境导入、学生互动和评价反馈。",
+  regular: "帮我生成一份《物联网通信基础》的常规课教案，内容简洁，适合日常备课。"
+};
 
 const fieldLabels = {
   teaching_date: "授课日期",
@@ -88,7 +97,7 @@ let currentReviewReport = null;
 let currentWorkflowTrace = [];
 let currentTemplateAnalysis = null;
 let currentFillReport = null;
-let currentDeliveryScore = null;
+let currentEvaluationReport = null;
 
 function apiFetch(path, options = {}) {
   return fetch(path, options);
@@ -120,16 +129,16 @@ function setStatus(message, isError = false) {
   if (isError) showToast(message, "error");
 }
 
+function stepOrder(step) {
+  return ["input", "generate", "preview", "export"].indexOf(step);
+}
+
 function setStep(step) {
   document.querySelectorAll(".step-bar li").forEach((item) => {
     const active = item.dataset.step === step;
     item.classList.toggle("active", active);
     item.classList.toggle("done", item.dataset.step !== step && stepOrder(item.dataset.step) < stepOrder(step));
   });
-}
-
-function stepOrder(step) {
-  return ["input", "generate", "preview", "export"].indexOf(step);
 }
 
 function setBusy(busy, label = "生成中") {
@@ -191,14 +200,14 @@ function createFieldEditor(fields, canonicalKey) {
   if (!hasOwn(fields, actualKey)) fields[actualKey] = "";
 
   const item = document.createElement("label");
-  item.className = "preview-field";
+  item.className = `preview-field preview-field-${canonicalKey}`;
 
   const label = document.createElement("span");
   label.textContent = fieldLabels[canonicalKey] || actualKey;
 
   const textarea = document.createElement("textarea");
   textarea.dataset.field = actualKey;
-  textarea.rows = canonicalKey === "teaching_process" ? 8 : 3;
+  textarea.rows = canonicalKey === "teaching_process" ? 9 : 3;
   textarea.value = fields[actualKey] ?? "";
   textarea.addEventListener("input", () => {
     currentFields[actualKey] = textarea.value;
@@ -326,7 +335,8 @@ function buildDiagnostics(data = {}) {
     template_fields: data.template_fields || currentTemplateAnalysis?.mapped_fields || [],
     template_analysis: data.template_analysis || currentTemplateAnalysis,
     fill_report: data.fill_report || currentFillReport,
-    evaluation_report: data.evaluation_report || null
+    evaluation_report: data.evaluation_report || currentEvaluationReport,
+    agent_trace: data.workflow_trace || currentWorkflowTrace
   };
   diagnosticsOutput.textContent = JSON.stringify(report, null, 2);
 }
@@ -336,10 +346,10 @@ function applyResult(data) {
   currentTemplateId = data.template_id || currentTemplateId || "";
   currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis || null;
   currentFillReport = data.fill_report || currentFillReport || null;
+  currentEvaluationReport = data.evaluation_report || currentEvaluationReport || null;
   currentGenerationBackend = data.generation_backend || currentGenerationBackend || "";
   currentReviewReport = data.review_report ?? currentReviewReport;
   currentWorkflowTrace = data.workflow_trace || currentWorkflowTrace || [];
-  currentDeliveryScore = data.delivery_score ?? data.evaluation_report?.delivery_score ?? null;
 
   previewCard.hidden = false;
   deliveryCard.hidden = true;
@@ -490,7 +500,7 @@ async function exportEditedDocument() {
     currentFields = editedFields;
     currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis;
     currentFillReport = data.fill_report || currentFillReport;
-    currentDeliveryScore = data.delivery_score ?? data.evaluation_report?.delivery_score ?? currentDeliveryScore;
+    currentEvaluationReport = data.evaluation_report || currentEvaluationReport;
     buildDiagnostics(data);
     setDownload(data.download_url);
     renderDelivery(data);
@@ -505,9 +515,71 @@ async function exportEditedDocument() {
   }
 }
 
+function normalizeScore(data = {}) {
+  const candidates = [
+    data.delivery_score,
+    data.evaluation_report?.delivery_score,
+    data.evaluation_report?.score,
+    currentEvaluationReport?.delivery_score,
+    currentEvaluationReport?.score
+  ];
+  const value = candidates.find((item) => item !== null && item !== undefined && item !== "");
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : null;
+}
+
+function evaluateQuality(fields, data = {}) {
+  const missing = requiredDeliveryKeys.filter((key) => !String(fieldValue(fields, key) || "").trim());
+  const score = normalizeScore(data);
+  const riskFromReport = data.evaluation_report?.risks || data.evaluation_report?.warnings || currentEvaluationReport?.risks || [];
+  const risks = Array.isArray(riskFromReport) ? riskFromReport.filter(Boolean) : [riskFromReport].filter(Boolean);
+
+  if (missing.includes("teaching_method")) {
+    return {
+      judgment: "不可提交",
+      score,
+      risk: "教学方法为空",
+      suggestion: "请先补充“教学方法的运用”，或点击“从主要教学内容提取教学方法”。"
+    };
+  }
+
+  if (missing.length) {
+    return {
+      judgment: "建议修改",
+      score,
+      risk: `${missing.map((key) => fieldLabels[key]).join("、")}未填写`,
+      suggestion: "建议返回编辑页补齐缺失字段后再提交或下载。"
+    };
+  }
+
+  if (risks.length) {
+    return {
+      judgment: "建议修改",
+      score,
+      risk: risks.slice(0, 2).join("；"),
+      suggestion: data.evaluation_report?.suggestion || "建议根据风险提示微调后再下载。"
+    };
+  }
+
+  return {
+    judgment: score !== null && score < 70 ? "建议修改" : "可提交",
+    score,
+    risk: "无",
+    suggestion: data.evaluation_report?.suggestion || "核心字段已填写，可下载 Word 教案。"
+  };
+}
+
 function renderDelivery(data = {}) {
   deliveryCard.hidden = false;
   const fields = collectEditedFields();
+  const quality = evaluateQuality(fields, data);
+
+  qualityJudgment.textContent = quality.judgment;
+  qualityJudgment.dataset.level = quality.judgment;
+  qualityScore.textContent = quality.score === null ? "--/100" : `${quality.score}/100`;
+  qualityRisk.textContent = quality.risk;
+  qualitySuggestion.textContent = quality.suggestion;
+
   deliveryChecklist.innerHTML = "";
   requiredDeliveryKeys.forEach((key) => {
     const item = document.createElement("li");
@@ -516,33 +588,25 @@ function renderDelivery(data = {}) {
     item.classList.toggle("missing", !done);
     deliveryChecklist.append(item);
   });
-
-  const score = data.delivery_score ?? currentDeliveryScore;
-  if (score !== null && score !== undefined) {
-    deliveryScore.textContent = `交付检查分：${score}`;
-    deliveryScore.hidden = false;
-  } else {
-    deliveryScore.hidden = true;
-  }
 }
 
 async function loadAiStatus(probe = false) {
   checkAiButton.disabled = true;
   aiStatusText.textContent = probe ? "诊断中" : "检查中";
   try {
-    const response = await apiFetch(`/api/llm-health${probe ? "?probe=1" : ""}`);
+    const response = await apiFetch(`/api/model/health${probe ? "?probe=1" : ""}`);
     const data = await readApiJson(response);
-    const llm = data.llm || {};
-    const state = llm.status || (llm.ok ? "ok" : "not_configured");
+    const state = data.status || (data.configured ? "configured" : "not_configured");
     const labels = {
       ok: "正常",
       configured: "已配置",
       not_configured: "未配置",
-      error: "异常"
+      error: "异常",
+      auth_failed: "异常"
     };
     aiStatus.dataset.status = state;
     aiStatusText.textContent = labels[state] || state;
-    aiStatus.title = llm.message || "";
+    aiStatus.title = data.message || "";
   } catch {
     aiStatus.dataset.status = "error";
     aiStatusText.textContent = "异常";
@@ -572,6 +636,14 @@ async function loadHistory() {
     historyList.textContent = "无法读取最近导出";
   }
 }
+
+document.querySelectorAll("[data-example]").forEach((button) => {
+  button.addEventListener("click", () => {
+    agentRequest.value = examplePrompts[button.dataset.example] || "";
+    agentRequest.focus();
+    showToast("示例已填入，可以继续修改后再生成。");
+  });
+});
 
 lessonForm.addEventListener("submit", submitLessonForm);
 useSchoolTemplate.addEventListener("change", () => {
