@@ -24,6 +24,7 @@ SECTION_FIELDS = [
     ("教学重点", "key_points"),
     ("教学难点", "difficult_points"),
     ("教学准备", "teaching_preparation"),
+    ("教学方法的运用", "teaching_method"),
     ("教学过程", "teaching_process"),
     ("板书设计", "blackboard_design"),
     ("作业设计", "homework"),

@@ -328,6 +328,12 @@ def _local_fallback_fields(
     class_type: str = "",
 ) -> dict[str, str]:
     material_hint = re.sub(r"\s+", " ", material).strip()
+    prompt_like_material = bool(
+        re.search(r"(帮我|生成|写一份|做一份).{0,30}(教案|备课|教学设计)", material_hint)
+        or re.search(r"(适合|课时|项目式|公开课|常规课).{0,20}教学", material_hint)
+    )
+    if prompt_like_material:
+        material_hint = ""
     if len(material_hint) > 140:
         material_hint = material_hint[:140] + "..."
     scope = infer_lesson_scope(class_hour, class_type)
@@ -344,6 +350,8 @@ def _local_fallback_fields(
         project_process = f"本项目共{hour_text}，围绕《{title_text}》设计项目化整体教学方案。\n一、项目总任务：明确真实任务情境、成果要求和评价标准，学生以小组方式完成完整项目。\n二、课时分配表：项目导入与任务拆解（2课时）；核心知识学习与方法示范（{max(2, hour_count // 4)}课时）；阶段任务训练与巡回指导（{max(3, hour_count // 3)}课时）；综合应用与成果完善（{max(2, hour_count // 4)}课时）；作品展示、评价反馈与总结提升（2课时）。\n三、阶段任务：按“认知准备—方法训练—项目实践—成果完善—展示评价”推进，每阶段都有明确学习产出。\n四、项目产出：学习任务单、阶段成果、项目作品、展示汇报和反思记录。\n五、评价方式：过程评价、成果评价、小组互评和教师评价结合。\n六、总结提升：复盘知识迁移、合作过程和质量改进方法。"
 
     if scope == "project_lesson" and is_pcb:
+        preparation = "计算机机房、EDA设计软件、PCB示例板、原理图素材、元件封装库、DRC规则说明、项目任务单、过程记录表和项目评价表。"
+        teaching_aids = "EDA设计软件、PCB示例板、原理图素材、元件封装库、DRC规则说明、Gerber输出示例、项目任务单和评价表。"
         goals = "1. 知识目标：理解PCB设计流程、元件封装、布局布线、DRC检查、Gerber输出等核心知识。\n2. 能力目标：能完成从原理图到PCB布局布线、规则检查和文件输出的完整设计任务。\n3. 素养目标：形成工程规范意识、团队协作意识和质量改进意识。"
         teaching_method = "采用项目教学法、任务驱动法、演示教学法、分组协作、巡回指导和作品展示评价相结合的方式。教师围绕原理图绘制、PCB布局布线、DRC检查、Gerber输出和作品展示组织阶段任务，学生在真实项目实践中完成设计、检查、修改和汇报。"
         homework = "阶段作业：\n1. 完成PCB设计流程思维导图；\n2. 完成原理图绘制与封装检查；\n3. 提交PCB布局布线文件；\n4. 完成DRC检查记录；\n5. 整理Gerber输出文件和项目说明书。"
@@ -351,6 +359,8 @@ def _local_fallback_fields(
         key_points = "PCB设计流程、原理图绘制、封装匹配、布局布线规范、DRC检查和Gerber文件输出。"
         difficult_points = "将工程规范落实到PCB布局布线细节中，并能依据DRC检查结果定位问题、修正设计。"
     elif scope == "project_lesson":
+        preparation = "多媒体课件、项目任务单、阶段成果模板、小组协作记录表、展示评价表和必要的实训材料。"
+        teaching_aids = "PPT课件、项目任务单、阶段成果样例、评价量规和展示材料。"
         goals = f"1. 知识目标：系统理解《{title_text}》项目任务所需的核心概念、方法流程和评价标准。\n2. 能力目标：能按阶段完成项目任务，形成可展示、可评价的学习成果。\n3. 素养目标：提升任务规划、团队协作、问题解决和持续改进意识。"
         teaching_method = "采用项目教学法、任务驱动法、演示教学法、分组协作、巡回指导和作品展示评价相结合的方式，围绕项目阶段任务推动学生完成学习产出。"
         homework = f"阶段作业：\n1. 完成《{title_text}》项目任务拆解表；\n2. 完成阶段学习任务单；\n3. 提交项目过程成果；\n4. 根据评价反馈修改完善作品；\n5. 整理项目说明和个人反思。"
@@ -358,6 +368,8 @@ def _local_fallback_fields(
         key_points = f"《{title_text}》项目任务流程、阶段产出要求和综合应用方法。"
         difficult_points = "把分散知识整合到项目任务中，并持续根据反馈改进成果质量。"
     elif scope == "unit_lesson":
+        preparation = "多媒体课件、学习任务单、单元知识结构图、综合任务材料和展示评价表。"
+        teaching_aids = f"PPT课件、教材、单元任务单、知识结构图。如《{title_text}》涉及实物展示或实验，准备对应的教具和演示材料。"
         goals = f"1. 知识目标：系统理解《{title_text}》单元核心概念和知识结构。\n2. 能力目标：能通过任务训练完成知识迁移和综合应用。\n3. 素养目标：提升持续探究、合作表达和反思改进能力。"
         teaching_method = "采用单元整体教学、任务驱动、小组讨论、案例分析和展示评价相结合的方式，帮助学生形成知识结构并完成综合应用。"
         homework = f"基础任务：整理《{title_text}》单元知识结构图。\n提升任务：完成综合应用练习并说明解题思路。\n拓展任务：围绕单元核心问题提出一个新的应用场景。"
@@ -365,6 +377,8 @@ def _local_fallback_fields(
         key_points = f"《{title_text}》单元核心知识、方法链条和综合应用任务。"
         difficult_points = "帮助学生把多课时内容组织成稳定的知识结构，并完成迁移应用。"
     else:
+        preparation = "多媒体课件、学习任务单、板书材料；学生课前阅读教材并标注疑问。"
+        teaching_aids = f"PPT课件、教材、学习任务单。如《{title_text}》涉及实物展示或实验，准备对应的教具和演示材料。"
         goals = f"1. 知识目标：理解《{title_text}》的核心内容与关键方法。\n2. 能力目标：能结合材料完成分析、表达和迁移应用。\n3. 素养目标：在学习过程中提升合作探究与反思能力。"
         teaching_method = f"采用案例教学、任务驱动、小组讨论和实物演示相结合的方式。通过生活案例导入《{title_text}》相关概念，组织学生观察分析，再以小组讨论完成应用场景分析。"
         homework = f"基础题：整理《{title_text}》关键知识。\n提升题：完成一道迁移应用任务。\n拓展题：结合生活或教材补充材料提出一个探究问题。"
@@ -390,9 +404,9 @@ def _local_fallback_fields(
         "key_points": key_points,
         "difficult_points": difficult_points,
         "teaching_key_difficult": f"重点：{key_points}\n难点：{difficult_points}",
-        "teaching_preparation": "多媒体课件、学习任务单、板书材料；学生课前阅读教材并标注疑问。",
+        "teaching_preparation": preparation,
         "teaching_environment": f"标准多媒体教室，配备投影设备、白板或智慧黑板，网络畅通。如本课《{title_text}》涉及实验或实训环节，应具备相应的操作台和演示器材。",
-        "teaching_aids": f"PPT课件、教材、学习任务单。如《{title_text}》涉及实物展示或实验，准备对应的教具和演示材料。",
+        "teaching_aids": teaching_aids,
         "teaching_method": teaching_method,
         "student_analysis": f"{grade}学生已有一定基础，但对《{title_text}》中的关键概念和迁移应用仍需要教师提供支架。",
         "teaching_process": teaching_process,
@@ -410,6 +424,8 @@ def _local_fallback_fields(
     }
     if material_hint:
         base["teaching_process"] += f"\n教材依据：{material_hint}"
+    elif scope == "project_lesson" and is_pcb:
+        base["teaching_process"] += "\n教材依据：依据物联网应用技术专业课程要求、PCB设计项目任务书、EDA软件操作规范和实训教学目标组织教学。"
 
     return {field: base.get(field, f"围绕《{title}》生成“{_field_label_hint(field)}”相关内容。") for field in dynamic_fields}
 
