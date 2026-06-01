@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Teacher Skill 教案助手</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260601-two-actions" />
+    <link rel="stylesheet" href="/static/app.css?v=20260601-single-prompt" />
   </head>
   <body>
     <div class="app-shell">
@@ -17,6 +17,7 @@
           </div>
         </div>
         <div class="ai-status" id="ai-status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
           <span>AI 状态</span>
           <strong id="ai-status-text">检查中</strong>
           <button type="button" id="check-ai-button">诊断</button>
@@ -24,216 +25,124 @@
       </header>
 
       <main>
-        <section class="home-view" id="home-view" aria-labelledby="home-title">
-          <div class="home-hero">
-            <p class="eyebrow">今天要做什么？</p>
-            <h2 id="home-title">选择一个教案任务</h2>
-          </div>
+        <section class="main-card" aria-labelledby="main-title">
+          <p class="eyebrow">一句话生成教案</p>
+          <h2 id="main-title">直接说你想要的教案</h2>
 
-          <div class="entry-grid">
-            <article class="entry-card">
-              <div>
-                <p class="entry-kicker">功能 1</p>
-                <h3>按模板填写教案</h3>
-                <p>上传学校 Word 模板，AI 自动识别字段并填写，尽量保持原格式。</p>
-              </div>
-              <button type="button" class="primary-button" id="open-template-flow">开始按模板填写</button>
-            </article>
+          <ol class="step-bar" aria-label="生成步骤">
+            <li class="active" data-step="input">输入需求</li>
+            <li data-step="generate">生成内容</li>
+            <li data-step="preview">预览编辑</li>
+            <li data-step="export">导出 Word</li>
+          </ol>
 
-            <article class="entry-card">
-              <div>
-                <p class="entry-kicker">功能 2</p>
-                <h3>一句话生成教案</h3>
-                <p>输入一句话需求，系统自动生成一份标准 Word 教案。</p>
-              </div>
-              <button type="button" class="primary-button" id="open-quick-flow">开始一句话生成</button>
-            </article>
-          </div>
-
-          <section class="footer-tools" aria-label="辅助信息">
-            <section class="mini-panel">
-              <div class="mini-head">
-                <h3>最近导出</h3>
-                <button type="button" class="text-button" id="refresh-history-button">刷新</button>
-              </div>
-              <div class="history-list" id="history-list">暂无导出记录</div>
-            </section>
-
-            <details class="mini-panel diagnostics-panel" id="diagnostics-panel">
-              <summary>高级诊断</summary>
-              <pre id="diagnostics-output">等待生成后显示模板字段、自动检查和写入报告。</pre>
-            </details>
-          </section>
-        </section>
-
-        <section class="flow-view" id="template-flow" hidden aria-labelledby="template-flow-title">
-          <button type="button" class="back-button" data-back-home>返回首页</button>
-          <div class="flow-header">
-            <p class="eyebrow">按模板填写教案</p>
-            <h2 id="template-flow-title">上传学校 Word 模板，按原格式填写</h2>
-          </div>
-
-          <form id="template-form" class="task-card">
-            <label class="field wide">
-              <span>Word 模板</span>
-              <input name="template" id="template-file" type="file" accept=".docx" required />
-              <small>必须上传 `.docx` 学校模板，系统会优先按模板中的表格字段写入。</small>
-            </label>
-
-            <div class="field-grid">
-              <label class="field">
-                <span>学科</span>
-                <input name="subject" autocomplete="off" placeholder="如：物联网" required />
-              </label>
-              <label class="field">
-                <span>班级 / 授课班级</span>
-                <input name="grade" autocomplete="off" placeholder="如：24物联网1班" required />
-              </label>
-              <label class="field">
-                <span>课题</span>
-                <input name="title" autocomplete="off" placeholder="如：传感器基础" required />
-              </label>
-              <label class="field">
-                <span>课时</span>
-                <input name="class_hour" autocomplete="off" value="1课时" required />
-              </label>
-              <label class="field">
-                <span>课型</span>
-                <select name="class_type">
-                  <option value="新授课">新授课</option>
-                  <option value="复习课">复习课</option>
-                  <option value="实训课">实训课</option>
-                  <option value="探究/实验课">探究/实验课</option>
-                  <option value="讲评课">讲评课</option>
-                </select>
-              </label>
-            </div>
-
-            <label class="field wide">
-              <span>教材内容 / 课程要求</span>
-              <textarea name="material" rows="8" placeholder="可粘贴教材、课程标准、实训要求或补充资料；没有也可以留空。"></textarea>
-            </label>
-
-            <details class="advanced-options">
-              <summary>高级设置</summary>
-              <div class="field-grid">
-                <label class="field">
-                  <span>教案风格</span>
-                  <select name="teaching_style">
-                    <option value="常规启发式">常规启发式</option>
-                    <option value="项目驱动(PBL)">项目驱动(PBL)</option>
-                    <option value="5E探究模型">5E探究模型</option>
-                    <option value="BOPPPS参与式教学">BOPPPS参与式教学</option>
-                  </select>
-                </label>
-                <label class="field">
-                  <span>生成深度</span>
-                  <select name="generation_depth">
-                    <option value="标准">标准</option>
-                    <option value="精简">精简</option>
-                    <option value="深度">深度</option>
-                  </select>
-                </label>
-                <label class="check-field">
-                  <input name="strict_ai" type="checkbox" value="1" checked />
-                  <span>严格 AI 模式</span>
-                </label>
-                <label class="check-field">
-                  <input id="show-template-diagnostics" type="checkbox" />
-                  <span>显示模板诊断</span>
-                </label>
-              </div>
-            </details>
-
-            <div class="form-actions">
-              <button type="submit" class="primary-button">生成并填写模板</button>
-            </div>
-          </form>
-        </section>
-
-        <section class="flow-view" id="quick-flow" hidden aria-labelledby="quick-flow-title">
-          <button type="button" class="back-button" data-back-home>返回首页</button>
-          <div class="flow-header">
-            <p class="eyebrow">一句话生成教案</p>
-            <h2 id="quick-flow-title">输入一句话，生成标准 Word 教案</h2>
-          </div>
-
-          <form id="quick-form" class="task-card">
+          <form id="lesson-form" class="prompt-form">
             <label class="field wide">
               <span>一句话需求</span>
               <textarea
+                id="agent-request"
                 name="agent_request"
-                id="quick-request"
                 rows="6"
                 required
                 placeholder="帮我生成一份 24物联网1班《PCB板设计》的实训课教案，适合项目式教学。"
               ></textarea>
             </label>
 
-            <div class="field-grid compact-fields" id="quick-missing-fields" hidden>
-              <label class="field">
-                <span>学科</span>
-                <input name="subject" autocomplete="off" placeholder="如：物联网" />
-              </label>
-              <label class="field">
-                <span>班级 / 年级</span>
-                <input name="grade" autocomplete="off" placeholder="如：24物联网1班" />
-              </label>
-              <label class="field">
-                <span>课题</span>
-                <input name="title" autocomplete="off" placeholder="如：PCB板设计" />
-              </label>
+            <div class="supplement-fields" id="supplement-fields" hidden>
+              <p>还差一点信息，请补齐后再生成。</p>
+              <div class="field-grid">
+                <label class="field">
+                  <span>学科</span>
+                  <input name="subject" autocomplete="off" placeholder="如：物联网" />
+                </label>
+                <label class="field">
+                  <span>班级/年级</span>
+                  <input name="grade" autocomplete="off" placeholder="如：24物联网1班" />
+                </label>
+                <label class="field">
+                  <span>课题</span>
+                  <input name="title" autocomplete="off" placeholder="如：PCB板设计" />
+                </label>
+              </div>
             </div>
 
             <label class="field wide">
               <span>教材内容 / 补充资料（可选）</span>
-              <textarea name="material" rows="7" placeholder="可选。粘贴后会让教案更贴合教材和课堂要求。"></textarea>
+              <textarea
+                id="material"
+                name="material"
+                rows="7"
+                placeholder="可以粘贴教材、课程标准、实训要求或学校补充说明；不填写也能生成通用版。"
+              ></textarea>
             </label>
 
-            <div class="template-choice">
-              <span>模板选择</span>
-              <label>
-                <input type="radio" name="template_mode" value="system" checked />
-                使用系统标准模板
-              </label>
-              <label>
-                <input type="radio" name="template_mode" value="upload" />
-                上传学校模板（可选）
-              </label>
-            </div>
+            <label class="template-toggle">
+              <input id="use-school-template" name="use_school_template" type="checkbox" />
+              <span>使用学校 Word 模板</span>
+            </label>
 
-            <label class="field wide" id="quick-template-wrap" hidden>
-              <span>上传学校 Word 模板</span>
-              <input name="template" id="quick-template-file" type="file" accept=".docx" />
+            <label class="field wide template-upload" id="template-upload-wrap" hidden>
+              <span>上传学校 Word 模板（.docx）</span>
+              <input id="template-input" name="template" type="file" accept=".docx" />
+              <small>勾选后必须上传模板；系统会按模板字段写入内容，并尽量保持原格式。</small>
             </label>
 
             <div class="form-actions">
-              <button type="submit" class="primary-button">生成教案</button>
+              <button type="submit" class="primary-button" id="generate-button">生成教案</button>
             </div>
           </form>
         </section>
 
-        <section class="result-view" id="result-view" hidden aria-labelledby="result-title">
-          <div class="result-header">
+        <section class="preview-card" id="preview-card" hidden aria-labelledby="preview-title">
+          <div class="section-head">
             <div>
-              <p class="eyebrow">生成结果</p>
-              <h2 id="result-title">字段预览 / 可编辑</h2>
+              <p class="eyebrow">预览编辑</p>
+              <h2 id="preview-title">确认字段内容</h2>
             </div>
-            <div class="result-actions">
-              <a class="secondary-button disabled" id="download-link" href="#" aria-disabled="true">下载 Word</a>
-              <button type="button" class="secondary-button" id="edit-again-button">重新编辑</button>
+            <div class="section-actions">
               <button type="button" class="secondary-button" id="regenerate-button">重新生成</button>
-              <button type="button" class="primary-button" id="export-button">写入 Word</button>
+              <button type="button" class="primary-button" id="export-button">导出 Word</button>
             </div>
           </div>
 
-          <div class="status-line" id="status-line" aria-live="polite">等待操作</div>
-          <div class="method-warning" id="method-warning" hidden>教学方法的运用为空，请补充后再导出。</div>
+          <div class="status-line" id="status-line" aria-live="polite">等待输入需求</div>
+          <div class="method-warning" id="method-warning" hidden>
+            <strong>教学方法的运用为空，请补充后再导出。</strong>
+            <button type="button" id="derive-method-button">从主要教学内容提取教学方法</button>
+          </div>
           <div class="preview-groups" id="preview-groups"></div>
+        </section>
+
+        <section class="delivery-card" id="delivery-card" hidden aria-labelledby="delivery-title">
+          <p class="eyebrow">已完成</p>
+          <h2 id="delivery-title">✓ Word 已生成</h2>
+          <p id="delivery-score" class="delivery-score" hidden></p>
+          <ul class="delivery-checklist" id="delivery-checklist"></ul>
+          <div class="delivery-actions">
+            <a class="primary-button" id="download-link" href="#" aria-disabled="true">下载 Word 教案</a>
+            <button type="button" class="secondary-button" id="back-edit-button">返回编辑</button>
+            <button type="button" class="secondary-button" id="restart-button">重新生成</button>
+          </div>
+        </section>
+
+        <section class="footer-tools" aria-label="辅助信息">
+          <section class="mini-panel">
+            <div class="mini-head">
+              <h3>最近导出</h3>
+              <button type="button" class="text-button" id="refresh-history-button">刷新</button>
+            </div>
+            <div class="history-list" id="history-list">暂无导出记录</div>
+          </section>
+
+          <details class="mini-panel diagnostics-panel" id="diagnostics-panel">
+            <summary>高级诊断</summary>
+            <pre id="diagnostics-output">生成后会在这里显示模板字段、写入报告和自动检查摘要。</pre>
+          </details>
         </section>
       </main>
     </div>
 
-    <script src="/static/app.js?v=20260601-two-actions"></script>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script src="/static/app.js?v=20260601-single-prompt"></script>
   </body>
 </html>

@@ -614,6 +614,9 @@ def write_lesson_json(fields: dict[str, str], output_path: str | Path) -> Path:
 
 
 def refine_lesson_field(field: str, value: str, action: str = "more_vivid", instruction: str = "") -> str:
+    if field == "teaching_method" and action == "derive_from_process":
+        return _derive_teaching_method_from_process("", instruction or "", value or "")
+
     label = REFINE_ACTIONS.get(action, action or "优化")
     text = (value or "").strip() or "请先生成或填写该字段内容。"
     custom = (instruction or "").strip()

@@ -1,24 +1,30 @@
-const homeView = document.querySelector("#home-view");
-const templateFlow = document.querySelector("#template-flow");
-const quickFlow = document.querySelector("#quick-flow");
-const resultView = document.querySelector("#result-view");
-const templateForm = document.querySelector("#template-form");
-const quickForm = document.querySelector("#quick-form");
-const quickTemplateWrap = document.querySelector("#quick-template-wrap");
-const quickMissingFields = document.querySelector("#quick-missing-fields");
-const resultTitle = document.querySelector("#result-title");
-const statusLine = document.querySelector("#status-line");
+const lessonForm = document.querySelector("#lesson-form");
+const agentRequest = document.querySelector("#agent-request");
+const supplementFields = document.querySelector("#supplement-fields");
+const useSchoolTemplate = document.querySelector("#use-school-template");
+const templateUploadWrap = document.querySelector("#template-upload-wrap");
+const templateInput = document.querySelector("#template-input");
+const generateButton = document.querySelector("#generate-button");
+const previewCard = document.querySelector("#preview-card");
 const previewGroupsRoot = document.querySelector("#preview-groups");
-const exportButton = document.querySelector("#export-button");
-const downloadLink = document.querySelector("#download-link");
-const editAgainButton = document.querySelector("#edit-again-button");
-const regenerateButton = document.querySelector("#regenerate-button");
+const statusLine = document.querySelector("#status-line");
 const methodWarning = document.querySelector("#method-warning");
+const deriveMethodButton = document.querySelector("#derive-method-button");
+const exportButton = document.querySelector("#export-button");
+const regenerateButton = document.querySelector("#regenerate-button");
+const deliveryCard = document.querySelector("#delivery-card");
+const deliveryChecklist = document.querySelector("#delivery-checklist");
+const deliveryScore = document.querySelector("#delivery-score");
+const downloadLink = document.querySelector("#download-link");
+const backEditButton = document.querySelector("#back-edit-button");
+const restartButton = document.querySelector("#restart-button");
 const aiStatus = document.querySelector("#ai-status");
 const aiStatusText = document.querySelector("#ai-status-text");
 const checkAiButton = document.querySelector("#check-ai-button");
 const historyList = document.querySelector("#history-list");
+const refreshHistoryButton = document.querySelector("#refresh-history-button");
 const diagnosticsOutput = document.querySelector("#diagnostics-output");
+const toast = document.querySelector("#toast");
 
 const fieldLabels = {
   teaching_date: "授课日期",
@@ -35,7 +41,7 @@ const fieldLabels = {
   teaching_process: "主要教学内容",
   teaching_method: "教学方法的运用",
   homework: "作业",
-  reflection: "课后小记",
+  reflection: "课后小记"
 };
 
 const previewGroups = [
@@ -43,28 +49,37 @@ const previewGroups = [
   { title: "教学准备", keys: ["teaching_environment", "teaching_aids"] },
   { title: "教学目标与重难点", keys: ["teaching_goals", "teaching_key_difficult"] },
   { title: "教学过程与方法", keys: ["teaching_process", "teaching_method"] },
-  { title: "作业与反思", keys: ["homework", "reflection"] },
+  { title: "作业与反思", keys: ["homework", "reflection"] }
 ];
 
-const fieldAliases = {
-  teaching_date: ["teaching_date", "授课日期", "日期"],
-  class_name: ["class_name", "授课班级", "班级", "grade"],
-  lesson_title: ["lesson_title", "课题", "课题名称"],
-  subject: ["subject", "学科"],
-  grade: ["grade", "班级", "年级"],
-  class_type: ["class_type", "授课类型", "课型"],
-  class_hour: ["class_hour", "课时数", "课时"],
-  teaching_environment: ["teaching_environment", "对教学环境的要求", "教学环境"],
-  teaching_goals: ["teaching_goals", "教学目的", "教学目标"],
-  teaching_key_difficult: ["teaching_key_difficult", "重点难点", "教学重难点"],
-  teaching_aids: ["teaching_aids", "教具挂图", "教具"],
-  teaching_process: ["teaching_process", "主要教学内容", "教学过程"],
-  teaching_method: ["teaching_method", "教学方法的运用", "教学方法"],
-  homework: ["homework", "作业", "作业设计"],
-  reflection: ["reflection", "课后小记", "教学反思"],
+const ChineseFieldAliases = {
+  teaching_date: ["授课日期", "日期"],
+  class_name: ["授课班级", "班级"],
+  lesson_title: ["课题", "课题名称", "教学课题"],
+  subject: ["学科"],
+  grade: ["年级", "班级/年级"],
+  class_type: ["授课类型", "课型"],
+  class_hour: ["课时数", "课时"],
+  teaching_environment: ["对教学环境的要求", "教学环境", "教学环境要求"],
+  teaching_goals: ["教学目的", "教学目标", "教学目的与要求"],
+  teaching_key_difficult: ["重点难点", "教学重难点"],
+  teaching_aids: ["教具挂图", "教具", "教学用具"],
+  teaching_process: ["主要教学内容", "教学过程", "教学流程"],
+  teaching_method: ["教学方法的运用", "教学方法", "教法"],
+  homework: ["作业", "作业设计"],
+  reflection: ["课后小记", "课后小结", "教学反思"]
 };
 
-let activeFlow = "home";
+const requiredDeliveryKeys = [
+  "lesson_title",
+  "teaching_goals",
+  "teaching_key_difficult",
+  "teaching_process",
+  "teaching_method",
+  "homework",
+  "reflection"
+];
+
 let currentFields = {};
 let currentTemplateId = "";
 let currentRequestContext = {};
@@ -73,6 +88,7 @@ let currentReviewReport = null;
 let currentWorkflowTrace = [];
 let currentTemplateAnalysis = null;
 let currentFillReport = null;
+let currentDeliveryScore = null;
 
 function apiFetch(path, options = {}) {
   return fetch(path, options);
@@ -84,33 +100,44 @@ async function readApiJson(response) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error("接口返回的不是 JSON。请确认已通过本地 Teacher Skill 后端打开页面。");
+    throw new Error("接口返回了网页而不是 JSON。请确认本地 Teacher Skill 后端正在运行，并刷新页面后重试。");
   }
 }
 
-function setView(view) {
-  activeFlow = view;
-  homeView.hidden = view !== "home";
-  templateFlow.hidden = view !== "template";
-  quickFlow.hidden = view !== "quick";
-  resultView.hidden = view === "home";
-  window.scrollTo({ top: 0, behavior: "smooth" });
+function showToast(message, type = "info") {
+  toast.textContent = message;
+  toast.dataset.type = type;
+  toast.hidden = false;
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => {
+    toast.hidden = true;
+  }, 4200);
 }
 
 function setStatus(message, isError = false) {
   statusLine.textContent = message;
   statusLine.classList.toggle("error", isError);
+  if (isError) showToast(message, "error");
 }
 
-function setBusy(form, busy, textWhenBusy) {
-  const buttons = form ? [...form.querySelectorAll("button")] : [];
-  buttons.forEach((button) => {
-    button.disabled = busy;
-    if (button.type === "submit") {
-      if (!button.dataset.originalText) button.dataset.originalText = button.textContent;
-      button.textContent = busy ? textWhenBusy : button.dataset.originalText;
-    }
+function setStep(step) {
+  document.querySelectorAll(".step-bar li").forEach((item) => {
+    const active = item.dataset.step === step;
+    item.classList.toggle("active", active);
+    item.classList.toggle("done", item.dataset.step !== step && stepOrder(item.dataset.step) < stepOrder(step));
   });
+}
+
+function stepOrder(step) {
+  return ["input", "generate", "preview", "export"].indexOf(step);
+}
+
+function setBusy(busy, label = "生成中") {
+  generateButton.disabled = busy;
+  if (!generateButton.dataset.originalText) {
+    generateButton.dataset.originalText = generateButton.textContent;
+  }
+  generateButton.textContent = busy ? label : generateButton.dataset.originalText;
 }
 
 function normalizeDownloadUrl(url) {
@@ -130,9 +157,14 @@ function setDownload(url) {
   downloadLink.setAttribute("aria-disabled", ready ? "false" : "true");
 }
 
+function hasOwn(fields, key) {
+  return Object.prototype.hasOwnProperty.call(fields, key);
+}
+
 function firstExistingKey(fields, canonicalKey) {
-  const candidates = fieldAliases[canonicalKey] || [canonicalKey];
-  return candidates.find((key) => Object.prototype.hasOwnProperty.call(fields, key)) || canonicalKey;
+  if (hasOwn(fields, canonicalKey)) return canonicalKey;
+  const aliases = ChineseFieldAliases[canonicalKey] || [];
+  return aliases.find((key) => hasOwn(fields, key)) || canonicalKey;
 }
 
 function fieldValue(fields, canonicalKey) {
@@ -140,21 +172,29 @@ function fieldValue(fields, canonicalKey) {
   return fields[key] ?? "";
 }
 
-function hasNonEmptyTeachingMethod(fields) {
+function hasTeachingMethod(fields) {
   return String(fieldValue(fields, "teaching_method") || "").trim().length > 0;
 }
 
-function knownPreviewKeys() {
-  return new Set(previewGroups.flatMap((group) => group.keys.flatMap((key) => fieldAliases[key] || [key])));
+function hasTeachingProcess(fields) {
+  return String(fieldValue(fields, "teaching_process") || "").trim().length > 0;
+}
+
+function groupedKnownKeys() {
+  const known = new Set(previewGroups.flatMap((group) => group.keys));
+  Object.values(ChineseFieldAliases).forEach((aliases) => aliases.forEach((alias) => known.add(alias)));
+  return known;
 }
 
 function createFieldEditor(fields, canonicalKey) {
   const actualKey = firstExistingKey(fields, canonicalKey);
+  if (!hasOwn(fields, actualKey)) fields[actualKey] = "";
+
   const item = document.createElement("label");
   item.className = "preview-field";
 
   const label = document.createElement("span");
-  label.textContent = fieldLabels[canonicalKey] || fieldLabels[actualKey] || actualKey;
+  label.textContent = fieldLabels[canonicalKey] || actualKey;
 
   const textarea = document.createElement("textarea");
   textarea.dataset.field = actualKey;
@@ -162,8 +202,9 @@ function createFieldEditor(fields, canonicalKey) {
   textarea.value = fields[actualKey] ?? "";
   textarea.addEventListener("input", () => {
     currentFields[actualKey] = textarea.value;
-    updateTeachingMethodGuard();
     setDownload(null);
+    deliveryCard.hidden = true;
+    updateTeachingMethodGuard();
   });
 
   item.append(label, textarea);
@@ -172,6 +213,7 @@ function createFieldEditor(fields, canonicalKey) {
 
 function renderPreview(fields) {
   previewGroupsRoot.innerHTML = "";
+
   previewGroups.forEach((group) => {
     const section = document.createElement("details");
     section.className = "preview-section";
@@ -183,15 +225,13 @@ function renderPreview(fields) {
 
     const grid = document.createElement("div");
     grid.className = "preview-grid";
-    group.keys.forEach((key) => {
-      grid.append(createFieldEditor(fields, key));
-    });
+    group.keys.forEach((key) => grid.append(createFieldEditor(fields, key)));
     section.append(grid);
     previewGroupsRoot.append(section);
   });
 
-  const used = knownPreviewKeys();
-  const extraKeys = Object.keys(fields).filter((key) => !used.has(key));
+  const known = groupedKnownKeys();
+  const extraKeys = Object.keys(fields).filter((key) => !known.has(key));
   if (extraKeys.length) {
     const section = document.createElement("details");
     section.className = "preview-section";
@@ -218,47 +258,272 @@ function collectEditedFields() {
 
 function updateTeachingMethodGuard() {
   const fields = collectEditedFields();
-  const blocked = !hasNonEmptyTeachingMethod(fields);
+  const blocked = !hasTeachingMethod(fields);
   methodWarning.hidden = !blocked;
+  deriveMethodButton.disabled = !hasTeachingProcess(fields);
   exportButton.disabled = blocked;
+  return !blocked;
 }
 
-function readRequestContextFromForm(form) {
-  const data = new FormData(form);
-  return {
-    subject: data.get("subject") || "",
-    grade: data.get("grade") || "",
-    title: data.get("title") || "",
-    class_hour: data.get("class_hour") || "1课时",
-    class_type: data.get("class_type") || "",
-    teaching_style: data.get("teaching_style") || "",
-    generation_depth: data.get("generation_depth") || "",
+function setSupplementVisible(visible, task = {}) {
+  supplementFields.hidden = !visible;
+  if (!visible) return;
+  const subject = supplementFields.querySelector('[name="subject"]');
+  const grade = supplementFields.querySelector('[name="grade"]');
+  const title = supplementFields.querySelector('[name="title"]');
+  if (!subject.value) subject.value = task.subject || "";
+  if (!grade.value) grade.value = task.grade || "";
+  if (!title.value) title.value = task.title || "";
+}
+
+function supplementReady() {
+  const subject = supplementFields.querySelector('[name="subject"]').value.trim();
+  const grade = supplementFields.querySelector('[name="grade"]').value.trim();
+  const title = supplementFields.querySelector('[name="title"]').value.trim();
+  return Boolean(subject && grade && title);
+}
+
+function writeSupplementToFormData(formData) {
+  ["subject", "grade", "title"].forEach((key) => {
+    const input = supplementFields.querySelector(`[name="${key}"]`);
+    if (input?.value.trim()) formData.set(key, input.value.trim());
+  });
+}
+
+function applyTaskDefaults(formData, task = {}) {
+  if (task.subject && !formData.get("subject")) formData.set("subject", task.subject);
+  if (task.grade && !formData.get("grade")) formData.set("grade", task.grade);
+  if (task.title && !formData.get("title")) formData.set("title", task.title);
+  formData.set("class_hour", task.class_hour || formData.get("class_hour") || "1课时");
+  formData.set("class_type", task.class_type || formData.get("class_type") || "新授课");
+  formData.set("teaching_style", task.teaching_style || "常规启发式");
+  formData.set("student_level", task.student_level || "常规混合水平");
+  formData.set("generation_depth", task.generation_depth || "标准");
+  formData.set("strict_ai", "1");
+}
+
+async function previewRequest(formData) {
+  const payload = {
+    agent_request: formData.get("agent_request") || "",
+    subject: formData.get("subject") || "",
+    grade: formData.get("grade") || "",
+    title: formData.get("title") || ""
   };
+  const response = await apiFetch("/api/agent-preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await readApiJson(response);
+  if (!response.ok) throw new Error(data.message || data.error || "需求解析失败");
+  return data;
 }
 
-function buildDiagnostics(payload = {}) {
-  const useful = {
-    template_fields: payload.template_fields || currentTemplateAnalysis?.mapped_fields || [],
-    template_analysis: payload.template_analysis || currentTemplateAnalysis,
-    fill_report: payload.fill_report || currentFillReport,
-    evaluation_report: payload.evaluation_report || null,
+function buildDiagnostics(data = {}) {
+  const report = {
+    template_mode: data.template_mode || (useSchoolTemplate.checked ? "upload" : "system"),
+    generation_backend: data.generation_backend || currentGenerationBackend,
+    template_fields: data.template_fields || currentTemplateAnalysis?.mapped_fields || [],
+    template_analysis: data.template_analysis || currentTemplateAnalysis,
+    fill_report: data.fill_report || currentFillReport,
+    evaluation_report: data.evaluation_report || null
   };
-  diagnosticsOutput.textContent = JSON.stringify(useful, null, 2);
+  diagnosticsOutput.textContent = JSON.stringify(report, null, 2);
 }
 
-function applyResult(data, options = {}) {
+function applyResult(data) {
   currentFields = data.fields || {};
   currentTemplateId = data.template_id || currentTemplateId || "";
   currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis || null;
-  currentReviewReport = data.review_report || data.review_report === null ? data.review_report : currentReviewReport;
-  currentWorkflowTrace = data.workflow_trace || currentWorkflowTrace || [];
-  currentGenerationBackend = data.generation_backend || currentGenerationBackend || "";
   currentFillReport = data.fill_report || currentFillReport || null;
+  currentGenerationBackend = data.generation_backend || currentGenerationBackend || "";
+  currentReviewReport = data.review_report ?? currentReviewReport;
+  currentWorkflowTrace = data.workflow_trace || currentWorkflowTrace || [];
+  currentDeliveryScore = data.delivery_score ?? data.evaluation_report?.delivery_score ?? null;
 
-  resultTitle.textContent = options.title || "字段预览 / 可编辑";
+  previewCard.hidden = false;
+  deliveryCard.hidden = true;
   renderPreview(currentFields);
   buildDiagnostics(data);
   setDownload(data.download_url || null);
+  updateTeachingMethodGuard();
+}
+
+async function submitLessonForm(event) {
+  event.preventDefault();
+  if (useSchoolTemplate.checked && !templateInput.files.length) {
+    showToast("请上传学校 Word 模板，或取消“使用学校 Word 模板”。", "error");
+    templateInput.focus();
+    return;
+  }
+
+  setStep("generate");
+  previewCard.hidden = false;
+  deliveryCard.hidden = true;
+  setStatus("正在理解需求...");
+  setBusy(true, "生成中");
+  setDownload(null);
+
+  try {
+    const initialData = new FormData(lessonForm);
+    writeSupplementToFormData(initialData);
+    const preview = await previewRequest(initialData);
+    const task = preview.agent_task || {};
+    const missing = preview.missing_fields || task.missing_fields || [];
+    const stillMissing = missing.filter((name) => ["subject", "grade", "title"].includes(name));
+    if (stillMissing.length && !supplementReady()) {
+      setSupplementVisible(true, task);
+      setStep("input");
+      setStatus("还缺少学科、班级/年级或课题，请补齐后再点“生成教案”。", true);
+      return;
+    }
+
+    const runData = new FormData(lessonForm);
+    writeSupplementToFormData(runData);
+    applyTaskDefaults(runData, task);
+    runData.set("template_mode", useSchoolTemplate.checked ? "upload" : "system");
+    if (useSchoolTemplate.checked) {
+      runData.set("template", templateInput.files[0]);
+    } else {
+      runData.delete("template");
+    }
+
+    setStatus("正在生成内容并写入 Word...");
+    const response = await apiFetch("/api/agent-run", { method: "POST", body: runData });
+    const data = await readApiJson(response);
+    if (!response.ok) {
+      if (data.needs_input && data.agent_task) setSupplementVisible(true, data.agent_task);
+      throw new Error(data.message || data.error || "生成教案失败");
+    }
+
+    currentRequestContext = {
+      agent_request: runData.get("agent_request") || "",
+      material: runData.get("material") || "",
+      subject: runData.get("subject") || task.subject || "",
+      grade: runData.get("grade") || task.grade || "",
+      title: runData.get("title") || task.title || "",
+      class_hour: runData.get("class_hour") || "1课时",
+      class_type: runData.get("class_type") || "新授课"
+    };
+    setSupplementVisible(false);
+    applyResult(data);
+    setStep("preview");
+    setStatus("教案内容已生成，请预览并确认字段。");
+    if (data.download_url && updateTeachingMethodGuard()) {
+      renderDelivery(data);
+    }
+    await loadHistory();
+  } catch (error) {
+    setStep("input");
+    setStatus(error.message || "生成教案失败", true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function deriveTeachingMethod() {
+  const fields = collectEditedFields();
+  const teachingProcess = String(fieldValue(fields, "teaching_process") || "").trim();
+  if (!teachingProcess) {
+    setStatus("请先填写主要教学内容，再提取教学方法。", true);
+    return;
+  }
+
+  deriveMethodButton.disabled = true;
+  deriveMethodButton.textContent = "提取中";
+  try {
+    const response = await apiFetch("/api/refine-field", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        field: "teaching_method",
+        value: teachingProcess,
+        action: "derive_from_process",
+        instruction: currentRequestContext.title || ""
+      })
+    });
+    const data = await readApiJson(response);
+    if (!response.ok) throw new Error(data.error || "提取教学方法失败");
+    const methodKey = firstExistingKey(fields, "teaching_method");
+    currentFields[methodKey] = data.value || data.refined || "";
+    renderPreview(currentFields);
+    setStatus("已从主要教学内容提取教学方法，请确认后导出。");
+  } catch (error) {
+    setStatus(error.message || "提取教学方法失败", true);
+  } finally {
+    deriveMethodButton.textContent = "从主要教学内容提取教学方法";
+    deriveMethodButton.disabled = false;
+    updateTeachingMethodGuard();
+  }
+}
+
+async function exportEditedDocument() {
+  const editedFields = collectEditedFields();
+  if (!hasTeachingMethod(editedFields)) {
+    updateTeachingMethodGuard();
+    setStatus("教学方法的运用为空，请补充后再导出。", true);
+    return;
+  }
+  if (!currentTemplateId) {
+    setStatus("缺少模板信息，请重新生成后再导出。", true);
+    return;
+  }
+
+  exportButton.disabled = true;
+  setStep("export");
+  setStatus("正在导出 Word...");
+  try {
+    const response = await apiFetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: currentTemplateId,
+        fields: editedFields,
+        request_context: currentRequestContext,
+        generation_backend: currentGenerationBackend,
+        review_report: currentReviewReport,
+        workflow_trace: currentWorkflowTrace
+      })
+    });
+    const data = await readApiJson(response);
+    if (!response.ok) throw new Error(data.error || "导出 Word 失败");
+    currentFields = editedFields;
+    currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis;
+    currentFillReport = data.fill_report || currentFillReport;
+    currentDeliveryScore = data.delivery_score ?? data.evaluation_report?.delivery_score ?? currentDeliveryScore;
+    buildDiagnostics(data);
+    setDownload(data.download_url);
+    renderDelivery(data);
+    setStatus("Word 已生成，可以下载。");
+    await loadHistory();
+  } catch (error) {
+    setStep("preview");
+    setStatus(error.message || "导出 Word 失败", true);
+  } finally {
+    exportButton.disabled = false;
+    updateTeachingMethodGuard();
+  }
+}
+
+function renderDelivery(data = {}) {
+  deliveryCard.hidden = false;
+  const fields = collectEditedFields();
+  deliveryChecklist.innerHTML = "";
+  requiredDeliveryKeys.forEach((key) => {
+    const item = document.createElement("li");
+    const done = String(fieldValue(fields, key) || "").trim().length > 0;
+    item.textContent = `${done ? "✓" : "○"} ${fieldLabels[key]}已填写`;
+    item.classList.toggle("missing", !done);
+    deliveryChecklist.append(item);
+  });
+
+  const score = data.delivery_score ?? currentDeliveryScore;
+  if (score !== null && score !== undefined) {
+    deliveryScore.textContent = `交付检查分：${score}`;
+    deliveryScore.hidden = false;
+  } else {
+    deliveryScore.hidden = true;
+  }
 }
 
 async function loadAiStatus(probe = false) {
@@ -273,7 +538,7 @@ async function loadAiStatus(probe = false) {
       ok: "正常",
       configured: "已配置",
       not_configured: "未配置",
-      error: "异常",
+      error: "异常"
     };
     aiStatus.dataset.status = state;
     aiStatusText.textContent = labels[state] || state;
@@ -308,221 +573,35 @@ async function loadHistory() {
   }
 }
 
-async function submitTemplateFlow(event) {
-  event.preventDefault();
-  const templateFile = document.querySelector("#template-file");
-  if (!templateFile.files.length) {
-    setStatus("请先上传学校 Word 模板。", true);
-    templateFile.focus();
-    return;
-  }
-
-  setView("template");
-  resultView.hidden = false;
-  setStatus("正在识别模板字段并生成教案内容...");
-  setBusy(templateForm, true, "生成中");
-  setDownload(null);
-
-  try {
-    const formData = new FormData(templateForm);
-    currentRequestContext = readRequestContextFromForm(templateForm);
-    const response = await apiFetch("/api/draft", { method: "POST", body: formData });
-    const data = await readApiJson(response);
-    if (!response.ok) throw new Error(data.error || "生成失败");
-    applyResult(data, { title: "老师确认 / 编辑字段" });
-    setStatus("字段内容已生成。请确认后点击“写入 Word”。");
-  } catch (error) {
-    setStatus(error.message || "生成失败", true);
-  } finally {
-    setBusy(templateForm, false, "生成并填写模板");
-  }
-}
-
-async function previewQuickRequest(formData) {
-  const payload = {
-    agent_request: formData.get("agent_request") || "",
-    subject: formData.get("subject") || "",
-    grade: formData.get("grade") || "",
-    title: formData.get("title") || "",
-  };
-  const response = await apiFetch("/api/agent-preview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const data = await readApiJson(response);
-  if (!response.ok) throw new Error(data.error || "需求解析失败");
-  return data;
-}
-
-function fillQuickMissingFields(task = {}) {
-  quickMissingFields.hidden = false;
-  const subject = quickMissingFields.querySelector('[name="subject"]');
-  const grade = quickMissingFields.querySelector('[name="grade"]');
-  const title = quickMissingFields.querySelector('[name="title"]');
-  if (!subject.value) subject.value = task.subject || "";
-  if (!grade.value) grade.value = task.grade || "";
-  if (!title.value) title.value = task.title || "";
-}
-
-function quickRequiredFieldsAreReady() {
-  const subject = quickMissingFields.querySelector('[name="subject"]').value.trim();
-  const grade = quickMissingFields.querySelector('[name="grade"]').value.trim();
-  const title = quickMissingFields.querySelector('[name="title"]').value.trim();
-  return subject && grade && title;
-}
-
-async function submitQuickFlow(event) {
-  event.preventDefault();
-  setView("quick");
-  resultView.hidden = false;
-  setStatus("正在理解一句话需求...");
-  setBusy(quickForm, true, "生成中");
-  setDownload(null);
-
-  try {
-    const formData = new FormData(quickForm);
-    const preview = await previewQuickRequest(formData);
-    const task = preview.agent_task || {};
-    const missing = preview.missing_fields || task.missing_fields || [];
-    if (missing.length && !quickRequiredFieldsAreReady()) {
-      fillQuickMissingFields(task);
-      setStatus("还缺少学科、班级或课题，请补齐后再次点击“生成教案”。", true);
-      return;
-    }
-
-    const requestData = new FormData(quickForm);
-    const supplement = new FormData(quickMissingFields.closest("form"));
-    ["subject", "grade", "title"].forEach((key) => {
-      const value = supplement.get(key);
-      if (value && !requestData.get(key)) requestData.set(key, value);
-    });
-    requestData.set("class_hour", task.class_hour || "1课时");
-    requestData.set("class_type", task.class_type || "新授课");
-    requestData.set("teaching_style", task.teaching_style || "常规启发式");
-    requestData.set("student_level", task.student_level || "常规混合水平");
-    requestData.set("generation_depth", task.generation_depth || "标准");
-    requestData.set("strict_ai", "1");
-
-    if (requestData.get("template_mode") === "upload") {
-      const file = document.querySelector("#quick-template-file");
-      if (!file.files.length) {
-        setStatus("请选择学校 Word 模板，或改用系统标准模板。", true);
-        file.focus();
-        return;
-      }
-      requestData.set("template", file.files[0]);
-    }
-
-    setStatus("正在生成标准教案并写入 Word...");
-    const response = await apiFetch("/api/agent-run", { method: "POST", body: requestData });
-    const data = await readApiJson(response);
-    if (!response.ok) {
-      if (data.needs_input && data.agent_task) fillQuickMissingFields(data.agent_task);
-      throw new Error(data.message || data.error || "生成失败");
-    }
-    currentRequestContext = {
-      subject: requestData.get("subject") || task.subject || "",
-      grade: requestData.get("grade") || task.grade || "",
-      title: requestData.get("title") || task.title || "",
-      class_hour: requestData.get("class_hour") || "1课时",
-    };
-    applyResult(data, { title: "标准教案预览 / 可编辑" });
-    setStatus("教案已生成。可以直接下载，也可以编辑后重新写入 Word。");
-    loadHistory();
-  } catch (error) {
-    setStatus(error.message || "生成失败", true);
-  } finally {
-    setBusy(quickForm, false, "生成教案");
-  }
-}
-
-async function exportEditedDocument() {
-  const editedFields = collectEditedFields();
-  if (!hasNonEmptyTeachingMethod(editedFields)) {
-    updateTeachingMethodGuard();
-    setStatus("教学方法的运用为空，请补充后再导出。", true);
-    return;
-  }
-  if (!currentTemplateId) {
-    setStatus("缺少模板信息，请重新生成。", true);
-    return;
-  }
-
-  exportButton.disabled = true;
-  setStatus("正在写入 Word...");
-  try {
-    const response = await apiFetch("/api/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        template_id: currentTemplateId,
-        fields: editedFields,
-        request_context: currentRequestContext,
-        generation_backend: currentGenerationBackend,
-        review_report: currentReviewReport,
-        workflow_trace: currentWorkflowTrace,
-      }),
-    });
-    const data = await readApiJson(response);
-    if (!response.ok) throw new Error(data.error || "写入 Word 失败");
-    currentFields = editedFields;
-    currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis;
-    currentFillReport = data.fill_report || currentFillReport;
-    currentWorkflowTrace = data.workflow_trace || currentWorkflowTrace;
-    buildDiagnostics(data);
-    setDownload(data.download_url);
-    setStatus("Word 已写入完成，可以下载。");
-    loadHistory();
-  } catch (error) {
-    setStatus(error.message || "写入 Word 失败", true);
-  } finally {
-    exportButton.disabled = false;
-    updateTeachingMethodGuard();
-  }
-}
-
-document.querySelector("#open-template-flow").addEventListener("click", () => setView("template"));
-document.querySelector("#open-quick-flow").addEventListener("click", () => setView("quick"));
-document.querySelectorAll("[data-back-home]").forEach((button) => {
-  button.addEventListener("click", () => setView("home"));
+lessonForm.addEventListener("submit", submitLessonForm);
+useSchoolTemplate.addEventListener("change", () => {
+  templateUploadWrap.hidden = !useSchoolTemplate.checked;
 });
-
-templateForm.addEventListener("submit", submitTemplateFlow);
-quickForm.addEventListener("submit", submitQuickFlow);
+deriveMethodButton.addEventListener("click", deriveTeachingMethod);
 exportButton.addEventListener("click", exportEditedDocument);
-checkAiButton.addEventListener("click", () => loadAiStatus(true));
-document.querySelector("#refresh-history-button").addEventListener("click", loadHistory);
-
-editAgainButton.addEventListener("click", () => {
-  const first = previewGroupsRoot.querySelector("textarea");
-  first?.focus();
-  first?.scrollIntoView({ behavior: "smooth", block: "center" });
+regenerateButton.addEventListener("click", () => lessonForm.requestSubmit());
+backEditButton.addEventListener("click", () => {
+  deliveryCard.hidden = true;
+  previewCard.scrollIntoView({ behavior: "smooth", block: "start" });
 });
-
-regenerateButton.addEventListener("click", () => {
+restartButton.addEventListener("click", () => {
+  setStep("input");
+  deliveryCard.hidden = true;
+  previewCard.hidden = true;
   setDownload(null);
-  if (activeFlow === "quick") {
-    quickForm.requestSubmit();
-  } else if (activeFlow === "template") {
-    templateForm.requestSubmit();
-  }
+  agentRequest.focus();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 });
-
 downloadLink.addEventListener("click", (event) => {
   if (downloadLink.classList.contains("disabled")) {
     event.preventDefault();
-    setStatus("请先生成并写入 Word。", true);
+    setStatus("请先生成并导出 Word。", true);
   }
 });
+checkAiButton.addEventListener("click", () => loadAiStatus(true));
+refreshHistoryButton.addEventListener("click", loadHistory);
 
-quickForm.querySelectorAll('input[name="template_mode"]').forEach((radio) => {
-  radio.addEventListener("change", () => {
-    quickTemplateWrap.hidden = quickForm.template_mode.value !== "upload";
-  });
-});
-
-setView("home");
+setStep("input");
 setDownload(null);
 loadAiStatus(false);
 loadHistory();
