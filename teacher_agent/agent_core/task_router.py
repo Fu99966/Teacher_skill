@@ -9,6 +9,8 @@ from ..lesson_generator import (
     DEFAULT_GENERATION_DEPTH,
     DEFAULT_STUDENT_LEVEL,
     DEFAULT_TEACHING_STYLE,
+    extract_class_name_from_request,
+    extract_lesson_title_from_request,
 )
 
 
@@ -28,6 +30,7 @@ SUBJECTS = (
     "美术",
     "体育",
     "信息技术",
+    "物联网",
     "劳动",
 )
 
@@ -128,21 +131,23 @@ def _extract_subject(text: str) -> str:
     for subject in SUBJECTS:
         if subject in text:
             return subject
+    if any(keyword in text.upper() for keyword in ("STM32", "PCB", "智能小车")):
+        return "物联网"
     return ""
 
 
 def _extract_grade(text: str) -> str:
+    class_name = extract_class_name_from_request(text)
+    if class_name:
+        return class_name
     match = GRADE_PATTERN.search(text)
     return match.group(0) if match else ""
 
 
 def _extract_title(text: str) -> str:
-    match = re.search(r"《([^》]+)》", text)
-    if match:
-        return match.group(1).strip()
-    match = re.search(r"[\"“]([^\"”]+)[\"”]", text)
-    if match:
-        return match.group(1).strip()
+    title = extract_lesson_title_from_request(text)
+    if title:
+        return title
     match = re.search(r"(?:课题|主题|内容|关于)\s*[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9·\-]{2,30})", text)
     return match.group(1).strip() if match else ""
 
@@ -153,6 +158,11 @@ def _extract_class_hour(text: str) -> str:
 
 
 def _extract_class_type(text: str) -> str:
+    if "项目" in text or "实训" in text:
+        return "项目实训课"
+    hour_match = re.search(r"(\d+)\s*课时", text)
+    if hour_match and int(hour_match.group(1)) >= 9:
+        return "项目实训课"
     if "复习" in text:
         return "复习课"
     if "讲评" in text or "习题" in text:

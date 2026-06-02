@@ -19,6 +19,7 @@ from .lesson_generator import (
     clean_cn_punctuation,
     draft_lesson_document_fields_with_source,
     is_pcb_project_lesson,
+    is_stm32_smart_car_project_lesson,
     normalize_lesson_field_aliases,
     sanitize_lesson_title,
 )
@@ -67,6 +68,15 @@ PCB_HOUR_ALLOCATION_ROWS = [
     ("第六阶段", "作品展示、互评与总结提升", "4课时", "展示汇报、评价表、反思记录"),
 ]
 
+STM32_SMART_CAR_HOUR_ALLOCATION_ROWS = [
+    ("第一阶段", "项目导入与STM32智能小车结构认知", "4课时", "项目任务书、系统结构图"),
+    ("第二阶段", "STM32开发环境搭建与基础外设训练", "6课时", "工程文件、GPIO/定时器实验记录"),
+    ("第三阶段", "电机驱动与PWM调速控制", "6课时", "电机控制程序、调速测试记录"),
+    ("第四阶段", "循迹与避障传感器调试", "6课时", "传感器测试记录、循迹/避障程序"),
+    ("第五阶段", "智能小车综合联调与故障排查", "6课时", "综合运行视频、问题修改记录"),
+    ("第六阶段", "作品展示、评价反馈与总结提升", "4课时", "展示汇报、评价表、个人反思"),
+]
+
 
 def _is_system_template_path(template_path: Path) -> bool:
     return Path(template_path).name == "sample_lesson_template.docx"
@@ -110,7 +120,7 @@ def _insert_paragraph_after_table(table, text: str, template_paragraph) -> Parag
     return paragraph
 
 
-def _insert_table_after_paragraph(document: Document, paragraph) -> object:
+def _insert_table_after_paragraph(document: Document, paragraph, rows: list[tuple[str, str, str, str]]) -> object:
     table = document.add_table(rows=1, cols=4)
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -123,7 +133,7 @@ def _insert_table_after_paragraph(document: Document, paragraph) -> object:
         for run in cell.paragraphs[0].runs:
             run.bold = True
 
-    for row_values in PCB_HOUR_ALLOCATION_ROWS:
+    for row_values in rows:
         row = table.add_row()
         for index, value in enumerate(row_values):
             row.cells[index].text = value
@@ -142,11 +152,14 @@ def _insert_table_after_paragraph(document: Document, paragraph) -> object:
 def _enhance_system_template_docx(output_path: Path, fields: dict, template_path: Path) -> bool:
     if not _is_system_template_path(template_path):
         return False
-    if not is_pcb_project_lesson(
-        str(fields.get("lesson_title") or ""),
-        str(fields.get("class_hour") or ""),
-        str(fields.get("class_type") or ""),
-    ):
+    lesson_title = str(fields.get("lesson_title") or "")
+    class_hour = str(fields.get("class_hour") or "")
+    class_type = str(fields.get("class_type") or "")
+    if is_pcb_project_lesson(lesson_title, class_hour, class_type):
+        allocation_rows = PCB_HOUR_ALLOCATION_ROWS
+    elif is_stm32_smart_car_project_lesson(lesson_title, class_hour, class_type):
+        allocation_rows = STM32_SMART_CAR_HOUR_ALLOCATION_ROWS
+    else:
         return False
 
     document = Document(str(output_path))
@@ -164,7 +177,7 @@ def _enhance_system_template_docx(output_path: Path, fields: dict, template_path
             continue
         post_lines = _remove_text_stage_rows(post_lines)
         paragraph.text = "\n".join(pre_lines)
-        table = _insert_table_after_paragraph(document, paragraph)
+        table = _insert_table_after_paragraph(document, paragraph, allocation_rows)
         post_text = "\n".join(line for line in post_lines if line.strip())
         if post_text:
             _insert_paragraph_after_table(table, clean_cn_punctuation(post_text), paragraph)

@@ -65,6 +65,8 @@ FIELD_LABEL_TITLES = {
 
 PCB_PROJECT_PREPARATION = "计算机机房、EDA设计软件、PCB示例板、原理图素材、元件封装库、DRC规则说明、项目任务单、评价表。"
 PCB_PROJECT_MATERIAL_BASIS = "依据物联网应用技术专业课程要求、PCB设计项目任务书、EDA软件操作规范和实训教学目标组织教学。"
+STM32_SMART_CAR_PREPARATION = "计算机机房、STM32开发板、智能小车底盘、电机驱动模块、循迹传感器、超声波传感器、Keil或STM32CubeMX、ST-Link下载器、万用表、项目任务单、评价表。"
+STM32_SMART_CAR_MATERIAL_BASIS = "依据物联网应用技术专业课程要求、STM32嵌入式开发项目任务书、智能小车实训要求和嵌入式系统调试规范组织教学。"
 GENERAL_MATERIAL_BASIS = "依据课程标准、教材内容、课堂教学目标和学生学情组织教学。"
 
 
@@ -77,6 +79,75 @@ def normalize_topic_key(text: str) -> str:
     compact = re.sub(r"[\s\u3000]+", "", str(text or ""))
     compact = re.sub(r"[《》“”\"'，,。.:：;；、\-_/\\|()（）\[\]【】{}]+", "", compact)
     return compact.upper()
+
+
+def extract_class_name_from_request(text: str) -> str:
+    """Extract explicit vocational class names such as 24级物联网班 without rewriting them."""
+    source = re.sub(r"\s+", " ", str(text or "")).strip()
+    patterns = [
+        r"((?:20)?\d{2}\s*级\s*[\u4e00-\u9fa5A-Za-z0-9]{2,24}?(?:\d+\s*)?班)",
+        r"(\d{2}\s*[\u4e00-\u9fa5A-Za-z0-9]{2,24}?\s*\d+\s*班)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, source)
+        if match:
+            return re.sub(r"\s+", "", match.group(1))
+    return ""
+
+
+def _remove_class_name_prefix(text: str) -> str:
+    class_name = extract_class_name_from_request(text)
+    if class_name:
+        flexible = r"\s*".join(re.escape(ch) for ch in class_name)
+        text = re.sub(flexible, " ", text, count=1)
+    text = re.sub(
+        r"^\s*(?:20)?\d{2}\s*级\s*(?:物联网(?:应用技术)?|信息技术|计算机|电子商务|机电|电子信息)\s+",
+        " ",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def extract_lesson_title_from_request(text: str) -> str:
+    """Extract mixed English/digit lesson titles from one-sentence teacher requests."""
+    source = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not source:
+        return ""
+
+    match = re.search(r"《([^》]{1,80})》", source)
+    if match:
+        return match.group(1).strip()
+    match = re.search(r"[\"“]([^\"”]{1,80})[\"”]", source)
+    if match:
+        return match.group(1).strip()
+
+    cleaned = _remove_class_name_prefix(source)
+    cleaned = re.sub(r"^(?:请)?帮我(?:生成|写|做)?一份?", "", cleaned).strip()
+    cleaned = re.sub(r"^(?:生成|写|做)一份?", "", cleaned).strip()
+    cleaned = re.sub(r"^(?:教案|教学设计|备课)[：:]?", "", cleaned).strip()
+    cleaned = _remove_class_name_prefix(cleaned).strip()
+
+    title_patterns = [
+        r"([A-Za-z0-9][A-Za-z0-9\u4e00-\u9fa5\s]{1,40}?(?:课程|课))\s*(?:的)?\s*\d+\s*课时",
+        r"([A-Za-z0-9][A-Za-z0-9\u4e00-\u9fa5\s]{1,40}?)\s*的\s*\d+\s*课时",
+        r"([A-Za-z0-9][A-Za-z0-9\u4e00-\u9fa5\s]{1,40}?)\s+\d+\s*课时",
+    ]
+    for pattern in title_patterns:
+        match = re.search(pattern, cleaned, flags=re.IGNORECASE)
+        if match:
+            title = match.group(1).strip(" ，,。.;；：:")
+            title = re.sub(r"\s+", "", title)
+            title = re.sub(r"(?:教案|教学设计|备课)$", "", title)
+            return title.strip()
+
+    match = re.search(r"(?:课题|主题|内容|关于)\s*[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9·\-\s]{2,40})", cleaned)
+    if match:
+        title = re.sub(r"\s+", "", match.group(1)).strip(" ，,。.;；：:")
+        title = re.sub(r"(?:\d+\s*课时.*|教案|教学设计|备课)$", "", title)
+        return title.strip()
+    return ""
 
 
 def clean_cn_punctuation(text: str) -> str:
@@ -99,8 +170,7 @@ def clean_cn_punctuation(text: str) -> str:
 
 
 def _extract_title_from_request(agent_request: str) -> str:
-    match = re.search(r"《([^》]{1,80})》", str(agent_request or ""))
-    return match.group(1).strip() if match else ""
+    return extract_lesson_title_from_request(agent_request)
 
 
 def sanitize_lesson_title(title: str, agent_request: str, fallback_title: str = "") -> str:
@@ -142,6 +212,8 @@ def is_generation_request_text(text: str) -> bool:
         "24物联网",
         "PCB板设计",
         "PCB设计",
+        "STM32智能小车",
+        "智能小车",
     )
     compact_upper = compact.upper()
     marker_hits = sum(1 for marker in prompt_like_markers if marker.upper() in compact_upper)
@@ -178,9 +250,26 @@ def is_pcb_project_lesson(title: str, class_hour: str = "", class_type: str = ""
     return "PCB" in normalize_topic_key(title) and infer_lesson_scope(class_hour, class_type) == "project_lesson"
 
 
+def is_stm32_smart_car_topic(title: str) -> bool:
+    topic = normalize_topic_key(title)
+    return (
+        ("STM32" in topic and "智能小车" in topic)
+        or "单片机智能小车" in topic
+        or "智能小车" in topic
+        or "循迹小车" in topic
+        or "避障小车" in topic
+    )
+
+
+def is_stm32_smart_car_project_lesson(title: str, class_hour: str = "", class_type: str = "") -> bool:
+    return is_stm32_smart_car_topic(title) and infer_lesson_scope(class_hour, class_type) == "project_lesson"
+
+
 def default_material_basis(title: str, class_hour: str = "", class_type: str = "") -> str:
     if is_pcb_project_lesson(title, class_hour, class_type):
         return PCB_PROJECT_MATERIAL_BASIS
+    if is_stm32_smart_car_project_lesson(title, class_hour, class_type):
+        return STM32_SMART_CAR_MATERIAL_BASIS
     return GENERAL_MATERIAL_BASIS
 
 
@@ -196,6 +285,11 @@ def normalize_lesson_field_aliases(fields: dict[str, Any], agent_request: str = 
         result["teaching_aids"] = PCB_PROJECT_PREPARATION
         result["teaching_resources"] = PCB_PROJECT_PREPARATION
         result["preparation"] = PCB_PROJECT_PREPARATION
+    elif is_stm32_smart_car_project_lesson(title, class_hour, class_type):
+        result["teaching_preparation"] = STM32_SMART_CAR_PREPARATION
+        result["teaching_aids"] = STM32_SMART_CAR_PREPARATION
+        result["teaching_resources"] = STM32_SMART_CAR_PREPARATION
+        result["preparation"] = STM32_SMART_CAR_PREPARATION
     else:
         preparation = (
             result.get("teaching_preparation")
@@ -515,11 +609,14 @@ def _local_fallback_fields(
         material_hint = material_hint[:140] + "..."
     topic_key = normalize_topic_key(title_text)
     is_pcb = "PCB" in topic_key
+    is_stm32_car = is_stm32_smart_car_topic(title_text)
 
     single_process = f"一、导入新课：创设与《{title_text}》相关的问题情境，唤起学生已有经验。\n二、新知探究：围绕教学内容组织阅读、观察、讨论和归纳。\n三、巩固应用：完成基础练习与变式任务，教师即时反馈。\n四、课堂总结：学生梳理本课收获和仍需追问的问题。"
     unit_process = f"一、单元导入：明确《{title_text}》的学习主题、核心问题和阶段目标。\n二、核心知识学习：分课时梳理关键概念、方法和典型案例，形成知识网络。\n三、任务训练：围绕核心知识设置分层任务，组织学生完成练习、讨论和展示。\n四、综合应用：设计综合情境任务，引导学生迁移运用并修正理解偏差。\n五、评价总结：通过任务单、展示互评和教师点评完成单元回顾。"
     if is_pcb and scope == "project_lesson":
         project_process = f"本项目共{hour_text}，围绕“完成一块物联网节点控制板 PCB 设计”展开。\n一、项目总任务：学生以小组为单位完成从需求分析、原理图绘制、封装检查、PCB布局布线、DRC检查到Gerber文件输出的完整设计流程。\n二、课时分配表：\n第一阶段：项目导入与 PCB 基础认知（4课时），认识PCB设计流程、工程规范和项目评价标准。\n第二阶段：原理图设计与元件封装检查（6课时），完成原理图绘制、网络标号、元件封装匹配与电气规则初查。\n第三阶段：PCB布局与布线规范训练（8课时），完成板框设置、元件布局、关键信号布线、电源与地线处理。\n第四阶段：DRC检查与问题修改（6课时），根据DRC报告定位短路、间距、未连接网络等问题并迭代修改。\n第五阶段：Gerber文件输出与项目文档整理（4课时），完成Gerber、钻孔文件、BOM和项目说明文档整理。\n第六阶段：作品展示、互评与总结提升（4课时），开展小组汇报、作品互评、教师点评和工程经验复盘。\n三、阶段任务：每个阶段形成可检查的过程性成果，教师进行巡回指导和即时反馈。\n四、项目产出：原理图文件、PCB布局布线文件、DRC检查记录、Gerber输出文件、项目说明书和展示汇报。\n五、评价方式：过程表现、阶段成果、工程规范、问题修正质量、小组协作和最终作品展示综合评价。\n六、总结提升：引导学生复盘PCB设计中的规则意识、质量意识和工程迭代方法。"
+    elif is_stm32_car and scope == "project_lesson":
+        project_process = f"本项目共{hour_text}，围绕“完成一辆基于STM32的智能小车设计与调试”展开。\n一、项目总任务：学生以小组为单位完成STM32智能小车硬件连接、程序设计、传感器调试、电机控制、循迹/避障功能实现和综合展示。\n二、课时分配表：\n第一阶段：项目导入与STM32智能小车结构认知（4课时），明确智能小车系统组成、控制流程和项目评价标准。\n第二阶段：STM32开发环境搭建与基础外设训练（6课时），完成工程创建、GPIO、定时器和基础外设实验。\n第三阶段：电机驱动与PWM调速控制（6课时），完成电机驱动模块连接、PWM调速程序和速度测试。\n第四阶段：循迹与避障传感器调试（6课时），完成循迹传感器、超声波传感器检测和避障逻辑调试。\n第五阶段：智能小车综合联调与故障排查（6课时），完成硬件连接检查、程序整合、运行测试和问题修改。\n第六阶段：作品展示、评价反馈与总结提升（4课时），开展小组展示、作品评价、教师点评和项目复盘。\n三、阶段任务：每个阶段形成可检查的过程性成果，教师巡回指导，学生根据测试结果迭代修改。\n四、项目产出：STM32工程文件、硬件接线图、小车控制程序、传感器调试记录、综合演示视频、项目说明书。\n五、评价方式：过程表现、功能完成度、代码规范、调试记录、团队协作和作品展示综合评价。\n六、总结提升：引导学生复盘嵌入式系统调试过程、电机控制问题、传感器误差处理和工程迭代方法。"
     else:
         project_process = f"本项目共{hour_text}，围绕《{title_text}》设计项目化整体教学方案。\n一、项目总任务：明确真实任务情境、成果要求和评价标准，学生以小组方式完成完整项目。\n二、课时分配表：项目导入与任务拆解（2课时）；核心知识学习与方法示范（{max(2, hour_count // 4)}课时）；阶段任务训练与巡回指导（{max(3, hour_count // 3)}课时）；综合应用与成果完善（{max(2, hour_count // 4)}课时）；作品展示、评价反馈与总结提升（2课时）。\n三、阶段任务：按“认知准备—方法训练—项目实践—成果完善—展示评价”推进，每阶段都有明确学习产出。\n四、项目产出：学习任务单、阶段成果、项目作品、展示汇报和反思记录。\n五、评价方式：过程评价、成果评价、小组互评和教师评价结合。\n六、总结提升：复盘知识迁移、合作过程和质量改进方法。"
 
@@ -532,6 +629,15 @@ def _local_fallback_fields(
         reflection = "课后重点反思：学生是否掌握PCB设计完整流程；是否能发现并修改DRC问题；小组协作和工程规范意识是否提升；后续是否需要加强封装、布线和设计规则训练。"
         key_points = "PCB设计流程、原理图绘制、封装匹配、布局布线规范、DRC检查和Gerber文件输出。"
         difficult_points = "将工程规范落实到PCB布局布线细节中，并能依据DRC检查结果定位问题、修正设计。"
+    elif scope == "project_lesson" and is_stm32_car:
+        preparation = STM32_SMART_CAR_PREPARATION
+        teaching_aids = STM32_SMART_CAR_PREPARATION
+        goals = "1. 知识目标：理解STM32基础架构、GPIO、定时器、PWM、电机驱动、传感器检测、智能小车控制流程等核心知识。\n2. 能力目标：能完成STM32工程创建、外设配置、电机控制、循迹/避障传感器调试和智能小车综合联调。\n3. 素养目标：形成嵌入式系统调试意识、工程规范意识、团队协作意识和问题排查能力。"
+        teaching_method = "采用项目教学法、任务驱动法、演示教学法、分组协作、巡回指导和作品展示评价相结合的方式。教师围绕STM32工程创建、电机控制、PWM调速、循迹、避障和综合调试组织阶段任务，学生在真实智能小车项目实践中完成设计、检查、修改和展示。"
+        homework = "阶段作业：\n1. 完成STM32智能小车系统结构图；\n2. 完成GPIO、定时器和PWM基础实验；\n3. 提交电机驱动与调速测试记录；\n4. 完成循迹/避障传感器调试记录；\n5. 整理智能小车综合调试报告和项目说明书。"
+        reflection = "课后重点反思：学生是否掌握STM32外设配置与智能小车控制流程；是否能完成电机驱动、PWM调速、循迹/避障调试；小组协作、故障排查和工程规范意识是否提升；后续是否需要加强多模块联调和传感器数据处理训练。"
+        key_points = "STM32 GPIO、PWM、定时器、电机驱动、传感器数据采集、循迹/避障控制逻辑、小车综合调试。"
+        difficult_points = "多模块联调、传感器误差处理、电机速度控制、循迹/避障算法调试和故障定位。"
     elif scope == "project_lesson":
         preparation = "多媒体课件、项目任务单、阶段成果模板、小组协作记录表、展示评价表和必要的实训材料。"
         teaching_aids = "PPT课件、项目任务单、阶段成果样例、评价量规和展示材料。"
@@ -602,6 +708,8 @@ def _local_fallback_fields(
         base["teaching_process"] += f"\n教材依据：{material_hint}"
     elif scope == "project_lesson" and is_pcb:
         base["teaching_process"] += f"\n教材依据：{PCB_PROJECT_MATERIAL_BASIS}"
+    elif scope == "project_lesson" and is_stm32_car:
+        base["teaching_process"] += f"\n教材依据：{STM32_SMART_CAR_MATERIAL_BASIS}"
     else:
         base["teaching_process"] += f"\n教材依据：{GENERAL_MATERIAL_BASIS}"
 
