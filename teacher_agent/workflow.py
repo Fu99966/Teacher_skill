@@ -77,6 +77,27 @@ def _remove_text_stage_rows(lines: list[str]) -> list[str]:
     return [line for line in lines if not stage_pattern.match(line.strip())]
 
 
+def _split_top_level_process_lines(text: str) -> list[str]:
+    marked = re.sub(r"(?<!^)(?=[一二三四五六]、|教材依据[：:])", "\n", text)
+    return [line.strip() for line in marked.splitlines() if line.strip()]
+
+
+def _split_hour_allocation_sections(text: str) -> tuple[list[str], list[str]]:
+    match = re.search(r"二、课时分配表[：:]?", text)
+    if not match:
+        return _split_top_level_process_lines(text), []
+
+    before = text[: match.start()].strip()
+    after = text[match.end() :].strip()
+    next_section = re.search(r"(?=三、)", after)
+    post = after[next_section.start() :].strip() if next_section else ""
+
+    pre_lines = _split_top_level_process_lines(before)
+    pre_lines.append("二、课时分配表：见下表。")
+    post_lines = _split_top_level_process_lines(post)
+    return pre_lines, post_lines
+
+
 def _insert_paragraph_after_table(table, text: str, template_paragraph) -> Paragraph:
     paragraph_element = OxmlElement("w:p")
     table._tbl.addnext(paragraph_element)
@@ -135,13 +156,13 @@ def _enhance_system_template_docx(output_path: Path, fields: dict, template_path
         if "二、课时分配表" not in text:
             continue
 
-        lines = text.splitlines()
-        table_line_index = next((index for index, line in enumerate(lines) if "二、课时分配表" in line), -1)
-        if table_line_index < 0:
+        source_text = clean_cn_punctuation(str(fields.get("teaching_process") or text))
+        if "二、课时分配表" not in source_text:
+            source_text = text
+        pre_lines, post_lines = _split_hour_allocation_sections(source_text)
+        if not any("二、课时分配表" in line for line in pre_lines):
             continue
-
-        pre_lines = lines[: table_line_index + 1]
-        post_lines = _remove_text_stage_rows(lines[table_line_index + 1 :])
+        post_lines = _remove_text_stage_rows(post_lines)
         paragraph.text = "\n".join(pre_lines)
         table = _insert_table_after_paragraph(document, paragraph)
         post_text = "\n".join(line for line in post_lines if line.strip())

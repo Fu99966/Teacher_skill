@@ -136,6 +136,8 @@ def test_system_template_cleans_cn_punctuation(monkeypatch, tmp_path):
 def test_system_template_exports_real_hour_allocation_table(monkeypatch, tmp_path):
     output_path = _generate_docx(monkeypatch, tmp_path)
     doc = Document(str(output_path))
+    text = _docx_text(output_path)
+    compact = re.sub(r"\s+", "", text)
 
     matching_table = None
     for table in doc.tables:
@@ -166,6 +168,14 @@ def test_system_template_exports_real_hour_allocation_table(monkeypatch, tmp_pat
         "作品展示、互评与总结提升",
     ]:
         assert keyword in table_text
+
+    assert "二、课时分配表：见下表。" in text
+    assert "第一阶段：项目导入与PCB基础认知（4课时）" not in compact
+    assert "第二阶段：原理图设计与元件封装检查（6课时）" not in compact
+    assert "第三阶段：PCB布局与布线规范训练（8课时）" not in compact
+    assert "第四阶段：DRC检查与问题修改（6课时）" not in compact
+    assert "第五阶段：Gerber文件输出与项目文档整理（4课时）" not in compact
+    assert "第六阶段：作品展示、互评与总结提升（4课时）" not in compact
 
 
 def test_system_template_keeps_existing_delivery_fields(monkeypatch, tmp_path):
