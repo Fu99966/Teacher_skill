@@ -25,6 +25,7 @@ class FillReport:
     table_fields_filled: list[str] = field(default_factory=list)
     table_write_count: int = 0
     field_write_counts: dict[str, int] = field(default_factory=dict)
+    field_reports: dict[str, dict[str, Any]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -59,6 +60,10 @@ def _add_ordered(target: list[str], field_name: str) -> None:
         target.append(field_name)
 
 
+def _increment_field_write(report: FillReport, field_name: str) -> None:
+    report.field_write_counts[field_name] = report.field_write_counts.get(field_name, 0) + 1
+
+
 def _replace_placeholders_in_run(run, data: dict[str, Any], report: FillReport) -> bool:
     original = run.text
     changed = False
@@ -67,7 +72,7 @@ def _replace_placeholders_in_run(run, data: dict[str, Any], report: FillReport) 
         key = match.group(1).strip()
         if key not in data: _add_ordered(report.missing_fields, key); return match.group(0)
         if _is_effectively_empty(data[key]): _add_ordered(report.empty_fields, key); _add_ordered(report.skipped_empty_fields, key); return match.group(0)
-        changed = True; _add_ordered(report.filled_fields, key); _add_ordered(report.placeholder_fields_filled, key); return _docx_text(data[key])
+        changed = True; _add_ordered(report.filled_fields, key); _add_ordered(report.placeholder_fields_filled, key); _increment_field_write(report, key); return _docx_text(data[key])
     new_text = PLACEHOLDER_PATTERN.sub(replace, original)
     if changed: run.text = new_text
     return changed
@@ -94,7 +99,7 @@ def _replace_cross_run_placeholder(paragraph, match, data, report) -> bool:
     lr = paragraph.runs[last]; ls = ranges[last][1]
     fr.text = fr.text[:max(0, match.start() - fs)] + _docx_text(data[key]) + lr.text[max(0, match.end() - ls):]
     for i in range(first + 1, last + 1): paragraph.runs[i].text = ""
-    _add_ordered(report.filled_fields, key); _add_ordered(report.placeholder_fields_filled, key)
+    _add_ordered(report.filled_fields, key); _add_ordered(report.placeholder_fields_filled, key); _increment_field_write(report, key)
     return True
 
 
@@ -194,8 +199,29 @@ def _fill_one_table_target(document, field_name, value, target, report) -> bool:
         _write_cell_preserving_layout(cell, value)
 
     report.table_write_count += 1
-    report.field_write_counts[field_name] = report.field_write_counts.get(field_name, 0) + 1
+    _increment_field_write(report, field_name)
     return True
+
+
+def _build_field_reports(analysis: dict[str, Any], report: FillReport) -> None:
+    mappings = analysis.get("table_mappings", {})
+    required_fields = set(analysis.get("required_fields", []))
+    for field_name in analysis.get("mapped_fields", []):
+        targets = mappings.get(field_name, [])
+        first_target = targets[0] if targets else {}
+        required = field_name in required_fields or any(target.get("required") for target in targets)
+        written_count = report.field_write_counts.get(field_name, 0)
+        target_type = first_target.get("target_type") or ("placeholder" if field_name in report.placeholder_fields_filled else "")
+        status = "passed" if written_count > 0 else ("failed" if required else "warning")
+        report.field_reports[field_name] = {
+            "label": first_target.get("label") or field_name,
+            "required": required,
+            "written_count": written_count,
+            "target_type": target_type,
+            "status": status,
+        }
+        if required and written_count == 0:
+            report.warnings.append(f"必填字段 {field_name} 未写入任何目标单元格。")
 
 
 def _fill_table_mappings(document, data, mappings, report):
@@ -241,5 +267,6 @@ def fill_docx_template(template_path, data, output_path):
     elif tf_count > 0 and report.filled_non_empty_count < max(1, tf_count * 0.5):
         report.warnings.append("警告：本次只填入少量模板字段，请检查字段映射和生成结果。")
 
+    _build_field_reports(analysis, report)
     document.save(str(output_path))
     return report

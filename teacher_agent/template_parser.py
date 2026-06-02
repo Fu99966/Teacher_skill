@@ -126,22 +126,38 @@ def _choose_table_target(
     """Returns (target_grid_col, target_grid_span, target_row_override, mapping_type, target_type)."""
     num_cols = len(grid[0]) if grid else 0
 
-    def _all_blank(row_idx: int, col_start: int, col_end: int) -> bool:
+    def _blank_cell_on_row(row_idx: int, col_start: int, col_end: int) -> tuple[int, int] | None:
         if row_idx < 0 or row_idx >= len(grid):
-            return False
-        r = grid[row_idx]
-        for c in range(col_start, min(col_end, len(r))):
-            gcell = r[c]
-            if gcell is not None and not _is_blankish(gcell.text):
-                return False
-        return True
+            return None
+        unique_cells: list[GridCell] = []
+        seen: set[tuple[int, int]] = set()
+        for gcell in grid[row_idx]:
+            if gcell is None:
+                continue
+            key = (gcell.row, gcell.grid_col)
+            if key in seen:
+                continue
+            seen.add(key)
+            if _is_blankish(gcell.text):
+                unique_cells.append(gcell)
+        for gcell in unique_cells:
+            if gcell.grid_col == col_start:
+                return (gcell.grid_col, gcell.grid_span)
+        for gcell in unique_cells:
+            if gcell.grid_col >= col_start and gcell.grid_col < num_cols:
+                return (gcell.grid_col, gcell.grid_span)
+        for gcell in unique_cells:
+            if gcell.grid_col <= col_start < gcell.grid_col + gcell.grid_span:
+                return (gcell.grid_col, gcell.grid_span)
+        return None
 
     # A) NEXT_ROW_PREFERRED: check next-row first
     if field in NEXT_ROW_PREFERRED_FIELDS:
         nr = label_row + 1
         if nr < len(grid):
-            if _all_blank(nr, label_grid_col, label_grid_col + label_grid_span):
-                return (label_grid_col, label_grid_span, nr, "table_cell", "next_row_cell")
+            next_target = _blank_cell_on_row(nr, label_grid_col, label_grid_col + label_grid_span)
+            if next_target is not None:
+                return (next_target[0], next_target[1], nr, "table_cell", "next_row_cell")
 
     # B) Right-side blank
     rc = label_grid_col + label_grid_span
@@ -153,8 +169,9 @@ def _choose_table_target(
     # C) Next-row (fallback for non-preferred)
     nr = label_row + 1
     if nr < len(grid):
-        if _all_blank(nr, label_grid_col, label_grid_col + label_grid_span):
-            return (label_grid_col, label_grid_span, nr, "table_cell", "next_row_cell")
+        next_target = _blank_cell_on_row(nr, label_grid_col, label_grid_col + label_grid_span)
+        if next_target is not None:
+            return (next_target[0], next_target[1], nr, "table_cell", "next_row_cell")
 
     # D) Append in-place
     return (label_grid_col, label_grid_span, None, "table_cell_append", "append_label_cell")
