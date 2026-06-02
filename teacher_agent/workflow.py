@@ -3,12 +3,25 @@ from __future__ import annotations
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import re
 from urllib.parse import quote
+
+from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml import OxmlElement
+from docx.shared import Pt
+from docx.text.paragraph import Paragraph
 
 from .docx_filler import fill_docx_template
 from .few_shot_examples import select_few_shot_examples
 from .history_store import HistoryStore
-from .lesson_generator import draft_lesson_document_fields_with_source, normalize_lesson_field_aliases, sanitize_lesson_title
+from .lesson_generator import (
+    clean_cn_punctuation,
+    draft_lesson_document_fields_with_source,
+    is_pcb_project_lesson,
+    normalize_lesson_field_aliases,
+    sanitize_lesson_title,
+)
 from .preview_renderer import render_docx_pdf_preview
 from .rag_context import build_knowledge_context
 from .teacher_agents import review_lesson_quality, revise_lesson_after_review
@@ -43,6 +56,103 @@ class WorkflowTraceEvent:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+PCB_HOUR_ALLOCATION_ROWS = [
+    ("第一阶段", "项目导入与 PCB 基础认知", "4课时", "项目任务书、PCB设计流程图"),
+    ("第二阶段", "原理图设计与元件封装检查", "6课时", "原理图文件、封装检查记录"),
+    ("第三阶段", "PCB布局与布线规范训练", "8课时", "PCB布局布线文件"),
+    ("第四阶段", "DRC检查与问题修改", "6课时", "DRC检查记录、修改说明"),
+    ("第五阶段", "Gerber文件输出与项目文档整理", "4课时", "Gerber文件、BOM表、项目说明书"),
+    ("第六阶段", "作品展示、互评与总结提升", "4课时", "展示汇报、评价表、反思记录"),
+]
+
+
+def _is_system_template_path(template_path: Path) -> bool:
+    return Path(template_path).name == "sample_lesson_template.docx"
+
+
+def _remove_text_stage_rows(lines: list[str]) -> list[str]:
+    stage_pattern = re.compile(r"^第[一二三四五六]阶段[：:].*")
+    return [line for line in lines if not stage_pattern.match(line.strip())]
+
+
+def _insert_paragraph_after_table(table, text: str, template_paragraph) -> Paragraph:
+    paragraph_element = OxmlElement("w:p")
+    table._tbl.addnext(paragraph_element)
+    paragraph = Paragraph(paragraph_element, template_paragraph._parent)
+    paragraph.style = template_paragraph.style
+    paragraph.paragraph_format.line_spacing = template_paragraph.paragraph_format.line_spacing
+    paragraph.paragraph_format.space_after = template_paragraph.paragraph_format.space_after
+    paragraph.paragraph_format.left_indent = template_paragraph.paragraph_format.left_indent
+    paragraph.add_run(text)
+    return paragraph
+
+
+def _insert_table_after_paragraph(document: Document, paragraph) -> object:
+    table = document.add_table(rows=1, cols=4)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = True
+
+    header = ["阶段", "主要内容", "课时", "阶段产出"]
+    for index, value in enumerate(header):
+        cell = table.rows[0].cells[index]
+        cell.text = value
+        for run in cell.paragraphs[0].runs:
+            run.bold = True
+
+    for row_values in PCB_HOUR_ALLOCATION_ROWS:
+        row = table.add_row()
+        for index, value in enumerate(row_values):
+            row.cells[index].text = value
+
+    for row in table.rows:
+        for cell in row.cells:
+            for paragraph_in_cell in cell.paragraphs:
+                paragraph_in_cell.paragraph_format.space_after = Pt(0)
+
+    table_element = table._tbl
+    table_element.getparent().remove(table_element)
+    paragraph._p.addnext(table_element)
+    return table
+
+
+def _enhance_system_template_docx(output_path: Path, fields: dict, template_path: Path) -> bool:
+    if not _is_system_template_path(template_path):
+        return False
+    if not is_pcb_project_lesson(
+        str(fields.get("lesson_title") or ""),
+        str(fields.get("class_hour") or ""),
+        str(fields.get("class_type") or ""),
+    ):
+        return False
+
+    document = Document(str(output_path))
+    inserted = False
+    for paragraph in document.paragraphs:
+        text = clean_cn_punctuation(paragraph.text)
+        if "二、课时分配表" not in text:
+            continue
+
+        lines = text.splitlines()
+        table_line_index = next((index for index, line in enumerate(lines) if "二、课时分配表" in line), -1)
+        if table_line_index < 0:
+            continue
+
+        pre_lines = lines[: table_line_index + 1]
+        post_lines = _remove_text_stage_rows(lines[table_line_index + 1 :])
+        paragraph.text = "\n".join(pre_lines)
+        table = _insert_table_after_paragraph(document, paragraph)
+        post_text = "\n".join(line for line in post_lines if line.strip())
+        if post_text:
+            _insert_paragraph_after_table(table, clean_cn_punctuation(post_text), paragraph)
+        inserted = True
+        break
+
+    if inserted:
+        document.save(str(output_path))
+    return inserted
 
 
 def build_workflow_schema() -> dict:
@@ -244,6 +354,7 @@ class TeacherWorkflow:
         output_path = output_dir / output_name
 
         fill_report = fill_docx_template(template_path, fields, output_path)
+        _enhance_system_template_docx(output_path, fields, template_path)
         template_analysis = analyze_template(template_path)
         preview_pdf = render_docx_pdf_preview(output_path, preview_dir)
         preview_url = f"/preview/{quote(preview_pdf.name)}" if preview_pdf else None

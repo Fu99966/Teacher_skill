@@ -79,6 +79,25 @@ def normalize_topic_key(text: str) -> str:
     return compact.upper()
 
 
+def clean_cn_punctuation(text: str) -> str:
+    """Clean common Chinese punctuation spacing defects while keeping English terms readable."""
+    cleaned = str(text or "")
+    cleaned = re.sub(
+        r"围绕\s+([^“”\n]+?)\s*“\s*([^“”\n]+?)\s*展开[。.]?\s*”",
+        lambda match: f"围绕“{match.group(1).strip()} {match.group(2).strip()}”展开。",
+        cleaned,
+    )
+    cleaned = re.sub(r"\s*“\s*", "“", cleaned)
+    cleaned = re.sub(r"\s*”\s*", "”", cleaned)
+    cleaned = re.sub(r"([“《（【])\s+", r"\1", cleaned)
+    cleaned = re.sub(r"\s+([”》）】])", r"\1", cleaned)
+    cleaned = re.sub(r"\s+([，。！？；：、])", r"\1", cleaned)
+    cleaned = re.sub(r"([，。！？；：、])\s+", r"\1", cleaned)
+    cleaned = cleaned.replace("PCB  板", "PCB 板")
+    cleaned = cleaned.replace("PCB  设计", "PCB 设计")
+    return cleaned
+
+
 def _extract_title_from_request(agent_request: str) -> str:
     match = re.search(r"《([^》]{1,80})》", str(agent_request or ""))
     return match.group(1).strip() if match else ""
@@ -201,6 +220,9 @@ def normalize_lesson_field_aliases(fields: dict[str, Any], agent_request: str = 
             return f"教材依据：{default_material_basis(title, class_hour, class_type)}"
 
         result["teaching_process"] = basis_pattern.sub(replace_basis, process)
+    for key, value in list(result.items()):
+        if isinstance(value, str):
+            result[key] = clean_cn_punctuation(value)
     return result
 
 
@@ -497,7 +519,7 @@ def _local_fallback_fields(
     single_process = f"一、导入新课：创设与《{title_text}》相关的问题情境，唤起学生已有经验。\n二、新知探究：围绕教学内容组织阅读、观察、讨论和归纳。\n三、巩固应用：完成基础练习与变式任务，教师即时反馈。\n四、课堂总结：学生梳理本课收获和仍需追问的问题。"
     unit_process = f"一、单元导入：明确《{title_text}》的学习主题、核心问题和阶段目标。\n二、核心知识学习：分课时梳理关键概念、方法和典型案例，形成知识网络。\n三、任务训练：围绕核心知识设置分层任务，组织学生完成练习、讨论和展示。\n四、综合应用：设计综合情境任务，引导学生迁移运用并修正理解偏差。\n五、评价总结：通过任务单、展示互评和教师点评完成单元回顾。"
     if is_pcb and scope == "project_lesson":
-        project_process = f"本项目共{hour_text}，围绕“完成一块物联网节点控制板PCB设计”展开。\n一、项目总任务：学生以小组为单位完成从需求分析、原理图绘制、封装检查、PCB布局布线、DRC检查到Gerber文件输出的完整设计流程。\n二、课时分配表：\n第一阶段：项目导入与PCB基础认知（4课时），认识PCB设计流程、工程规范和项目评价标准。\n第二阶段：原理图设计与元件封装检查（6课时），完成原理图绘制、网络标号、元件封装匹配与电气规则初查。\n第三阶段：PCB布局与布线规范训练（8课时），完成板框设置、元件布局、关键信号布线、电源与地线处理。\n第四阶段：DRC检查与问题修改（6课时），根据DRC报告定位短路、间距、未连接网络等问题并迭代修改。\n第五阶段：Gerber文件输出与项目文档整理（4课时），完成Gerber、钻孔文件、BOM和项目说明文档整理。\n第六阶段：作品展示、互评与总结提升（4课时），开展小组汇报、作品互评、教师点评和工程经验复盘。\n三、阶段任务：每个阶段形成可检查的过程性成果，教师进行巡回指导和即时反馈。\n四、项目产出：原理图文件、PCB布局布线文件、DRC检查记录、Gerber输出文件、项目说明书和展示汇报。\n五、评价方式：过程表现、阶段成果、工程规范、问题修正质量、小组协作和最终作品展示综合评价。\n六、总结提升：引导学生复盘PCB设计中的规则意识、质量意识和工程迭代方法。"
+        project_process = f"本项目共{hour_text}，围绕“完成一块物联网节点控制板 PCB 设计”展开。\n一、项目总任务：学生以小组为单位完成从需求分析、原理图绘制、封装检查、PCB布局布线、DRC检查到Gerber文件输出的完整设计流程。\n二、课时分配表：\n第一阶段：项目导入与 PCB 基础认知（4课时），认识PCB设计流程、工程规范和项目评价标准。\n第二阶段：原理图设计与元件封装检查（6课时），完成原理图绘制、网络标号、元件封装匹配与电气规则初查。\n第三阶段：PCB布局与布线规范训练（8课时），完成板框设置、元件布局、关键信号布线、电源与地线处理。\n第四阶段：DRC检查与问题修改（6课时），根据DRC报告定位短路、间距、未连接网络等问题并迭代修改。\n第五阶段：Gerber文件输出与项目文档整理（4课时），完成Gerber、钻孔文件、BOM和项目说明文档整理。\n第六阶段：作品展示、互评与总结提升（4课时），开展小组汇报、作品互评、教师点评和工程经验复盘。\n三、阶段任务：每个阶段形成可检查的过程性成果，教师进行巡回指导和即时反馈。\n四、项目产出：原理图文件、PCB布局布线文件、DRC检查记录、Gerber输出文件、项目说明书和展示汇报。\n五、评价方式：过程表现、阶段成果、工程规范、问题修正质量、小组协作和最终作品展示综合评价。\n六、总结提升：引导学生复盘PCB设计中的规则意识、质量意识和工程迭代方法。"
     else:
         project_process = f"本项目共{hour_text}，围绕《{title_text}》设计项目化整体教学方案。\n一、项目总任务：明确真实任务情境、成果要求和评价标准，学生以小组方式完成完整项目。\n二、课时分配表：项目导入与任务拆解（2课时）；核心知识学习与方法示范（{max(2, hour_count // 4)}课时）；阶段任务训练与巡回指导（{max(3, hour_count // 3)}课时）；综合应用与成果完善（{max(2, hour_count // 4)}课时）；作品展示、评价反馈与总结提升（2课时）。\n三、阶段任务：按“认知准备—方法训练—项目实践—成果完善—展示评价”推进，每阶段都有明确学习产出。\n四、项目产出：学习任务单、阶段成果、项目作品、展示汇报和反思记录。\n五、评价方式：过程评价、成果评价、小组互评和教师评价结合。\n六、总结提升：复盘知识迁移、合作过程和质量改进方法。"
 
