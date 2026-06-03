@@ -143,7 +143,14 @@ def build_agent_tool_registry(
             )
 
         workflow = TeacherWorkflow()
-        export = workflow.export_document(state.fields or {}, tp, output_dir, preview_dir)
+        repeat_fill_mode = str((state.task or {}).get("repeat_fill_mode") or "").strip() or None
+        export = workflow.export_document(
+            state.fields or {},
+            tp,
+            output_dir,
+            preview_dir,
+            repeat_fill_mode=repeat_fill_mode,
+        )
         state.export_result = export
         state.artifacts.append(AgentArtifact(
             name="output_docx",

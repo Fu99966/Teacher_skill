@@ -373,6 +373,48 @@ textarea:focus {
   margin-top: -4px;
 }
 
+.template-advanced {
+  margin-top: -4px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: #fffaf5;
+}
+
+.template-advanced summary {
+  cursor: pointer;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.template-advanced fieldset {
+  border: 0;
+  padding: 10px 0 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.template-advanced legend {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.template-advanced label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--dark);
+}
+
+.template-advanced input {
+  width: 16px;
+  min-height: 16px;
+  accent-color: var(--accent);
+}
+
 .form-actions,
 .section-actions,
 .delivery-actions {

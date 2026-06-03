@@ -175,6 +175,7 @@ def test_uploaded_template_stm32_teaching_method_right_cell_and_class_name(monke
                 "agent_request": AGENT_REQUEST,
                 "template_mode": "upload",
                 "strict_ai": "0",
+                "repeat_fill_mode": "all",
             },
             {
                 "template": (
@@ -194,6 +195,7 @@ def test_uploaded_template_stm32_teaching_method_right_cell_and_class_name(monke
                 "fields": data["fields"],
                 "request_context": data.get("agent_task") or {},
                 "generation_backend": data.get("generation_backend"),
+                "repeat_fill_mode": "all",
             },
         )
         assert export_status == 200, export

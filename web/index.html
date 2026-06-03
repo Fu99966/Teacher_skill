@@ -84,6 +84,21 @@
               <small>勾选后必须上传模板；系统会按模板字段写入内容，并尽量保持原格式。</small>
             </label>
 
+            <details class="template-advanced" id="repeat-mode-wrap" hidden>
+              <summary>高级设置</summary>
+              <fieldset>
+                <legend>重复模板处理</legend>
+                <label>
+                  <input type="radio" name="repeat_fill_mode" value="first_only" checked />
+                  只填第一套
+                </label>
+                <label>
+                  <input type="radio" name="repeat_fill_mode" value="all" />
+                  填充全部重复表格
+                </label>
+              </fieldset>
+            </details>
+
             <label class="field wide">
               <span>教材内容 / 补充资料（可选）</span>
               <textarea

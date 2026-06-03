@@ -136,6 +136,7 @@ def test_uploaded_template_teaching_method_writes_right_next_row_cell(monkeypatc
                 "agent_request": AGENT_REQUEST,
                 "template_mode": "upload",
                 "strict_ai": "0",
+                "repeat_fill_mode": "all",
             },
             {
                 "template": (
@@ -155,6 +156,7 @@ def test_uploaded_template_teaching_method_writes_right_next_row_cell(monkeypatc
                 "fields": data["fields"],
                 "request_context": data.get("agent_task") or {},
                 "generation_backend": data.get("generation_backend"),
+                "repeat_fill_mode": "all",
             },
         )
         assert export_status == 200, export

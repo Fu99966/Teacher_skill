@@ -129,6 +129,12 @@ def _template_mode_label(template_path: Path) -> str:
     return "system" if template_path == SAMPLE_TEMPLATE else "upload"
 
 
+def _normalize_repeat_fill_mode(value: str | None, template_mode: str) -> str:
+    if template_mode != "upload":
+        return "all"
+    return "all" if str(value or "").strip() == "all" else "first_only"
+
+
 def _beginner_summary(evaluation_report: dict | None, is_generic_material: bool, template_mode: str) -> str:
     checks_ok = bool(evaluation_report and evaluation_report.get("passed"))
     quality_text = "已完成教研审阅和自动检查" if checks_ok else "已完成教案生成，建议下载前再快速预览"
@@ -200,8 +206,13 @@ def _normalize_teacher_web_fields(fields: dict[str, Any], task: Any, agent_reque
         str(getattr(task, "title", "") or normalized.get("title", "")),
     )
     normalized.setdefault("subject", getattr(task, "subject", ""))
-    normalized.setdefault("grade", getattr(task, "grade", ""))
-    normalized.setdefault("class_name", getattr(task, "grade", ""))
+    task_grade = str(getattr(task, "grade", "") or "").strip()
+    if task_grade:
+        normalized["grade"] = task_grade
+        normalized["class_name"] = task_grade
+    else:
+        normalized.setdefault("grade", "")
+        normalized.setdefault("class_name", "")
     normalized.setdefault("class_hour", getattr(task, "class_hour", ""))
     normalized.setdefault("class_type", getattr(task, "class_type", ""))
 
@@ -996,6 +1007,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         agent_request = _form_value(form, "agent_request", "")
         if not agent_request.strip():
             raise ValueError("请先输入 Agent 指令")
+        repeat_fill_mode = _normalize_repeat_fill_mode(
+            _form_value(form, "repeat_fill_mode", ""),
+            actual_template_mode,
+        )
 
         defaults = {
             "subject": subject,
@@ -1060,6 +1075,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         task_dict = task.to_dict()
         task_dict["material"] = clean_material
+        task_dict["repeat_fill_mode"] = repeat_fill_mode
         session_id = uuid.uuid4().hex[:12]
 
         state = AgentRunState(
@@ -1116,6 +1132,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "fill_report": export_result.get("fill_report"),
             "workflow_trace": result.state.trace,
             "template_mode": actual_template_mode,
+            "repeat_fill_mode": repeat_fill_mode,
             "is_generic_material": is_generic_material,
             "llm_status": llm_status,
             "mode": actual_template_mode,
@@ -1165,8 +1182,18 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         fields = normalize_lesson_field_aliases(fields, agent_request)
 
         template_path = _template_from_id(template_id)
+        repeat_fill_mode = _normalize_repeat_fill_mode(
+            str(payload.get("repeat_fill_mode") or request_context.get("repeat_fill_mode") or ""),
+            _template_mode_label(template_path),
+        )
         workflow = TeacherWorkflow()
-        result = workflow.export_document(fields, template_path, OUTPUT_DIR, PREVIEW_DIR)
+        result = workflow.export_document(
+            fields,
+            template_path,
+            OUTPUT_DIR,
+            PREVIEW_DIR,
+            repeat_fill_mode=repeat_fill_mode,
+        )
         output_path = OUTPUT_DIR / str(result.get("output_name") or "")
         evaluation = evaluate_lesson_output(
             fields=fields,

@@ -113,6 +113,18 @@ def test_single_prompt_js_defaults_to_fallback_and_system_template():
     assert "\u8bf7\u4e0a\u4f20\u5b66\u6821 Word \u6a21\u677f" in js
 
 
+def test_uploaded_template_repeat_fill_mode_is_hidden_advanced_option():
+    html = _read_web_file("index.html")
+    js = _read_web_file("static/app.js")
+
+    assert 'id="repeat-mode-wrap" hidden' in html
+    assert 'name="repeat_fill_mode" value="first_only" checked' in html
+    assert 'name="repeat_fill_mode" value="all"' in html
+    assert "function selectedRepeatFillMode" in js
+    assert 'runData.set("repeat_fill_mode", selectedRepeatFillMode())' in js
+    assert "repeatModeWrap.hidden = !useSchoolTemplate.checked" in js
+
+
 def test_long_duration_scope_hint_is_wired():
     html = _read_web_file("index.html")
     js = _read_web_file("static/app.js")

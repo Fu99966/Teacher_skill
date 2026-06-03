@@ -25,6 +25,10 @@ class FillReport:
     table_fields_filled: list[str] = field(default_factory=list)
     table_write_count: int = 0
     field_write_counts: dict[str, int] = field(default_factory=dict)
+    section_write_counts: dict[str, int] = field(default_factory=dict)
+    repeated_sections_detected: int = 0
+    repeat_fill_mode: str = "all"
+    filled_sections: int = 0
     field_reports: dict[str, dict[str, Any]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -62,6 +66,70 @@ def _add_ordered(target: list[str], field_name: str) -> None:
 
 def _increment_field_write(report: FillReport, field_name: str) -> None:
     report.field_write_counts[field_name] = report.field_write_counts.get(field_name, 0) + 1
+
+
+LESSON_SECTION_MARKERS = {
+    "lesson_title",
+    "teaching_goals",
+    "teaching_process",
+    "teaching_method",
+    "homework",
+    "reflection",
+}
+
+
+def _section_key_from_target(target: dict[str, Any]) -> str | None:
+    if target.get("location") != "body_table":
+        return None
+    table_index = target.get("table")
+    if table_index is None:
+        return None
+    return f"body_table:{table_index}"
+
+
+def _detect_repeated_lesson_sections(analysis: dict[str, Any]) -> list[str]:
+    section_fields: dict[str, set[str]] = {}
+    for field_name, targets in (analysis.get("table_mappings") or {}).items():
+        for target in targets:
+            key = _section_key_from_target(target)
+            if not key:
+                continue
+            section_fields.setdefault(key, set()).add(field_name)
+
+    sections: list[str] = []
+    for key, fields in section_fields.items():
+        has_core = {"lesson_title", "teaching_process", "teaching_method"}.issubset(fields)
+        has_support = bool(fields & {"teaching_goals", "teaching_key_difficult", "homework", "reflection"})
+        if has_core and has_support:
+            sections.append(key)
+
+    return sorted(sections, key=lambda value: int(value.rsplit(":", 1)[1]))
+
+
+def _normalize_repeat_fill_mode(mode: str | None) -> str:
+    return "all" if str(mode or "").strip() == "all" else "first_only"
+
+
+def _filter_mappings_for_repeat_mode(
+    mappings: dict[str, list[dict[str, Any]]],
+    repeated_sections: list[str],
+    repeat_fill_mode: str,
+) -> dict[str, list[dict[str, Any]]]:
+    if repeat_fill_mode == "all" or len(repeated_sections) <= 1:
+        return mappings
+
+    allowed_section = repeated_sections[0]
+    repeated = set(repeated_sections)
+    filtered: dict[str, list[dict[str, Any]]] = {}
+    for field_name, targets in mappings.items():
+        kept: list[dict[str, Any]] = []
+        for target in targets:
+            key = _section_key_from_target(target)
+            if key in repeated and key != allowed_section:
+                continue
+            kept.append(target)
+        filtered[field_name] = kept
+    return filtered
 
 
 def _replace_placeholders_in_run(run, data: dict[str, Any], report: FillReport) -> bool:
@@ -200,6 +268,9 @@ def _fill_one_table_target(document, field_name, value, target, report) -> bool:
 
     report.table_write_count += 1
     _increment_field_write(report, field_name)
+    section_key = _section_key_from_target(target)
+    if section_key:
+        report.section_write_counts[section_key] = report.section_write_counts.get(section_key, 0) + 1
     return True
 
 
@@ -242,17 +313,27 @@ def _remaining_placeholders(document):
     return fields
 
 
-def fill_docx_template(template_path, data, output_path):
+def fill_docx_template(template_path, data, output_path, repeat_fill_mode: str | None = "all"):
     template_path = Path(template_path); output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     analysis = analyze_template(template_path)
     report = FillReport(output_path=str(output_path))
+    report.repeat_fill_mode = _normalize_repeat_fill_mode(repeat_fill_mode)
+    repeated_sections = _detect_repeated_lesson_sections(analysis)
+    report.repeated_sections_detected = len(repeated_sections)
 
     document = Document(str(template_path))
     for p in iter_paragraphs(document): _replace_paragraph(p, data, report)
 
-    _fill_table_mappings(document, data, analysis.get("table_mappings", {}), report)
+    mappings = _filter_mappings_for_repeat_mode(
+        analysis.get("table_mappings", {}),
+        repeated_sections,
+        report.repeat_fill_mode,
+    )
+    _fill_table_mappings(document, data, mappings, report)
+    if repeated_sections:
+        report.filled_sections = sum(1 for section in repeated_sections if report.section_write_counts.get(section, 0) > 0)
 
     for fn in analysis.get("mapped_fields", []):
         if fn not in data: _add_ordered(report.missing_fields, fn)

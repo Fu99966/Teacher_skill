@@ -100,6 +100,7 @@ def _run_export(
     tmp_path: Path,
     *,
     template_mode: str,
+    repeat_fill_mode: str | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     output_dir = _patch_web_paths(monkeypatch, tmp_path)
@@ -122,27 +123,35 @@ def _run_export(
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 )
             }
+        run_fields = {
+            "agent_request": AGENT_REQUEST,
+            "template_mode": template_mode,
+            "strict_ai": "0",
+        }
+        if repeat_fill_mode:
+            run_fields["repeat_fill_mode"] = repeat_fill_mode
+
         run_status, data = _post_multipart(
             base_url,
             "/api/agent-run",
-            {
-                "agent_request": AGENT_REQUEST,
-                "template_mode": template_mode,
-                "strict_ai": "0",
-            },
+            run_fields,
             files,
         )
         assert run_status == 200, data
 
+        export_payload = {
+            "template_id": data["template_id"],
+            "fields": data["fields"],
+            "request_context": data.get("agent_task") or {},
+            "generation_backend": data.get("generation_backend"),
+        }
+        if repeat_fill_mode:
+            export_payload["repeat_fill_mode"] = repeat_fill_mode
+
         export_status, export = _post_json(
             base_url,
             "/api/export",
-            {
-                "template_id": data["template_id"],
-                "fields": data["fields"],
-                "request_context": data.get("agent_task") or {},
-                "generation_backend": data.get("generation_backend"),
-            },
+            export_payload,
         )
         assert export_status == 200, export
         output_path = output_dir / export["output_name"]
@@ -202,7 +211,7 @@ def test_stm32_system_template_e2e_without_deepseek(monkeypatch, tmp_path):
 
 
 def test_stm32_uploaded_template_writes_process_and_method_cells(monkeypatch, tmp_path):
-    output_path, export = _run_export(monkeypatch, tmp_path, template_mode="upload")
+    output_path, export = _run_export(monkeypatch, tmp_path, template_mode="upload", repeat_fill_mode="all")
     text = _docx_text(output_path)
     compact = re.sub(r"\s+", " ", text)
 

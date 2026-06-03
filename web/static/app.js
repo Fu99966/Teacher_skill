@@ -4,6 +4,7 @@ const supplementFields = document.querySelector("#supplement-fields");
 const useSchoolTemplate = document.querySelector("#use-school-template");
 const templateUploadWrap = document.querySelector("#template-upload-wrap");
 const templateInput = document.querySelector("#template-input");
+const repeatModeWrap = document.querySelector("#repeat-mode-wrap");
 const generateButton = document.querySelector("#generate-button");
 const previewCard = document.querySelector("#preview-card");
 const previewGroupsRoot = document.querySelector("#preview-groups");
@@ -351,6 +352,12 @@ function applyTaskDefaults(formData, task = {}) {
   formData.set("strict_ai", "0");
 }
 
+function selectedRepeatFillMode() {
+  if (!useSchoolTemplate.checked) return "all";
+  const checked = lessonForm.querySelector('input[name="repeat_fill_mode"]:checked');
+  return checked?.value === "all" ? "all" : "first_only";
+}
+
 async function previewRequest(formData) {
   const payload = {
     agent_request: formData.get("agent_request") || "",
@@ -372,6 +379,7 @@ function buildDiagnostics(data = {}) {
   const report = {
     template_mode: data.template_mode || (useSchoolTemplate.checked ? "upload" : "system"),
     generation_backend: data.generation_backend || currentGenerationBackend,
+    repeat_fill_mode: data.repeat_fill_mode || currentRequestContext.repeat_fill_mode || selectedRepeatFillMode(),
     template_fields: data.template_fields || currentTemplateAnalysis?.mapped_fields || [],
     template_analysis: data.template_analysis || currentTemplateAnalysis,
     fill_report: data.fill_report || currentFillReport,
@@ -435,6 +443,7 @@ async function submitLessonForm(event) {
     writeSupplementToFormData(runData);
     applyTaskDefaults(runData, task);
     runData.set("template_mode", useSchoolTemplate.checked ? "upload" : "system");
+    runData.set("repeat_fill_mode", selectedRepeatFillMode());
     if (useSchoolTemplate.checked) {
       runData.set("template", templateInput.files[0]);
     } else {
@@ -456,7 +465,8 @@ async function submitLessonForm(event) {
       grade: runData.get("grade") || task.grade || "",
       title: runData.get("title") || task.title || "",
       class_hour: runData.get("class_hour") || "1课时",
-      class_type: runData.get("class_type") || "新授课"
+      class_type: runData.get("class_type") || "新授课",
+      repeat_fill_mode: runData.get("repeat_fill_mode") || selectedRepeatFillMode()
     };
     setSupplementVisible(false);
     applyResult(data);
@@ -539,7 +549,8 @@ async function exportEditedDocument() {
         request_context: currentRequestContext,
         generation_backend: currentGenerationBackend,
         review_report: currentReviewReport,
-        workflow_trace: currentWorkflowTrace
+        workflow_trace: currentWorkflowTrace,
+        repeat_fill_mode: currentRequestContext.repeat_fill_mode || selectedRepeatFillMode()
       })
     });
     const data = await readApiJson(response);
@@ -695,6 +706,7 @@ document.querySelectorAll("[data-example]").forEach((button) => {
 lessonForm.addEventListener("submit", submitLessonForm);
 useSchoolTemplate.addEventListener("change", () => {
   templateUploadWrap.hidden = !useSchoolTemplate.checked;
+  if (repeatModeWrap) repeatModeWrap.hidden = !useSchoolTemplate.checked;
 });
 deriveMethodButton.addEventListener("click", deriveTeachingMethod);
 exportButton.addEventListener("click", exportEditedDocument);

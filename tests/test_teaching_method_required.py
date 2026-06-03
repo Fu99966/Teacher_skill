@@ -177,9 +177,11 @@ def test_teaching_method_e2e_written_to_both_tables(monkeypatch, tmp_path):
         teaching_style="常规启发式", student_level="常规", generation_depth="标准",
         missing_fields=[], confidence=0.9, notes=[],
     )
+    task_dict = task.to_dict()
+    task_dict["repeat_fill_mode"] = "all"
     state = AgentRunState(
         session_id="tm-test", status="initialized",
-        task=task.to_dict(), current_node="", next_action="",
+        task=task_dict, current_node="", next_action="",
         template_path=str(REAL_TEMPLATE), template_id="tm-test",
         template_analysis=template_analysis,
     )

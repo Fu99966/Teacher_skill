@@ -376,6 +376,7 @@ class TeacherWorkflow:
         template_path: Path,
         output_dir: Path,
         preview_dir: Path,
+        repeat_fill_mode: str | None = None,
     ) -> dict:
         title = sanitize_lesson_title(str(fields.get("lesson_title") or ""), "", str(fields.get("title") or "教案"))
         fields = dict(fields)
@@ -387,7 +388,8 @@ class TeacherWorkflow:
         output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
         output_path = output_dir / output_name
 
-        fill_report = fill_docx_template(template_path, fields, output_path)
+        actual_repeat_mode = repeat_fill_mode or ("all" if _is_system_template_path(template_path) else "first_only")
+        fill_report = fill_docx_template(template_path, fields, output_path, repeat_fill_mode=actual_repeat_mode)
         _enhance_system_template_docx(output_path, fields, template_path)
         template_analysis = analyze_template(template_path)
         preview_pdf = render_docx_pdf_preview(output_path, preview_dir)
