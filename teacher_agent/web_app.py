@@ -24,6 +24,8 @@ from .lesson_generator import (
     DEFAULT_TEACHING_STYLE,
     LessonGenerationError,
     check_generation_health,
+    extract_class_name_from_request,
+    extract_lesson_title_from_request,
     normalize_lesson_field_aliases,
     refine_lesson_field,
     sanitize_lesson_title,
@@ -141,18 +143,14 @@ def _infer_single_prompt_defaults(text: str, defaults: dict[str, str]) -> dict[s
     normalized = re.sub(r"\s+", " ", (text or "").strip())
 
     if not merged.get("title"):
-        title_match = re.search(r"《([^》]{1,80})》", normalized)
-        if title_match:
-            merged["title"] = title_match.group(1).strip()
-        else:
-            pcb_match = re.search(r"(?i)(PCB)\s*(板)?\s*设计", normalized)
-            if pcb_match:
-                merged["title"] = "PCB板设计" if pcb_match.group(2) else "PCB设计"
+        title = extract_lesson_title_from_request(normalized)
+        if title:
+            merged["title"] = title
 
     if not merged.get("grade"):
-        grade_match = re.search(r"([0-9０-９]{1,4}[\u4e00-\u9fffA-Za-z0-9０-９]*班)", normalized)
-        if grade_match:
-            merged["grade"] = grade_match.group(1).strip()
+        class_name = extract_class_name_from_request(normalized)
+        if class_name:
+            merged["grade"] = class_name
         else:
             grade_match = re.search(r"([0-9０-９]{1,4}级[\u4e00-\u9fffA-Za-z0-9０-９]*)", normalized)
             if grade_match:

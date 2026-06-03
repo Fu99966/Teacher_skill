@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from docx.oxml.ns import qn
+from docx.table import _Cell
 
 
 # ── GridCell ────────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ def parse_table_grid(table) -> list[list[GridCell]]:
                         is_vmerge_continue = True
 
             # Get text
-            cell_proxy = table.cell(row_index, physical_idx) if physical_idx < len(row.cells) else None
+            cell_proxy = _Cell(tc, table)
             text = ""
             normalized = ""
             if cell_proxy is not None:
