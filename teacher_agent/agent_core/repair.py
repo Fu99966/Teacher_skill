@@ -1,4 +1,3 @@
-"""Repair agent – diagnose and attempt to fix failed execution states."""
 from __future__ import annotations
 
 from typing import Any
@@ -7,101 +6,113 @@ from .state import AgentRunState
 
 
 def diagnose_failure(state: AgentRunState) -> dict[str, Any]:
-    """Return an analysis dict describing what went wrong."""
     issues: list[str] = []
     suggestions: list[str] = []
-
     fields = state.fields or {}
-    er = state.evaluation_report or {}
-    fr = (state.export_result or {}).get("fill_report", {}) if state.export_result else {}
+    fill_report = (state.export_result or {}).get("fill_report", {}) if state.export_result else {}
+    evaluation = state.evaluation_report or {}
 
-    # Check fields
     if not fields:
-        issues.append("fields 为空，未生成任何教案内容。")
-        suggestions.append("重新生成字段")
+        issues.append("未生成任何教案字段。")
+        suggestions.append("使用本地 fallback 重新补齐字段。")
     else:
-        non_empty = sum(1 for v in fields.values() if str(v or "").strip())
-        if non_empty == 0:
-            issues.append("所有字段内容为空。")
-            suggestions.append("使用 local fallback 填充所有字段")
+        empty = [key for key, value in fields.items() if not str(value or "").strip()]
+        if empty:
+            issues.append("存在空字段：" + "、".join(empty[:8]))
+            suggestions.append("用本地 fallback 补齐空字段。")
 
-    # Check fill report
-    if isinstance(fr, dict):
-        if fr.get("filled_non_empty_count", 0) == 0:
-            issues.append("Word 中未写入任何非空字段（filled_non_empty_count == 0）。")
-            suggestions.append("阻止导出，提示老师使用占位符模板或检查模板结构")
-        missing = fr.get("missing_fields", [])
-        if missing:
-            issues.append(f"缺失字段：{', '.join(missing)}。")
-            suggestions.append(f"用 fallback 补齐缺失字段：{', '.join(missing)}")
-        remaining = fr.get("remaining_placeholders", [])
-        if remaining:
-            issues.append(f"残留占位符：{', '.join(remaining)}。")
-            suggestions.append("重新填充残留占位符字段")
-        if "teaching_process" not in fr.get("filled_fields", []):
-            issues.append("teaching_process（主要教学内容）未写入 Word。")
-            suggestions.append("强制使用 template_analysis 中 next_row_cell target 重新写入")
+    if fill_report:
+        if int(fill_report.get("filled_non_empty_count") or 0) == 0:
+            issues.append("Word 未写入任何非空字段，存在空白模板风险。")
+            suggestions.append("阻断成功状态，重新填充或提示模板字段问题。")
+        if fill_report.get("remaining_placeholders"):
+            issues.append("Word 中仍有占位符残留。")
+            suggestions.append("按残留占位符补齐同名字段后重新导出。")
+        fwc = fill_report.get("field_write_counts", {})
+        if fwc.get("teaching_process", 0) == 0:
+            issues.append("主要教学内容未写入 Word。")
+        if fwc.get("teaching_method", 0) == 0:
+            issues.append("教学方法的运用未写入 Word。")
 
-    # Check output path
-    output_name = (state.export_result or {}).get("output_name")
-    if not output_name:
-        issues.append("Word 输出文件未生成（output_path 不存在）。")
-        suggestions.append("重新执行 export_docx")
+    if evaluation and not evaluation.get("passed", True):
+        issues.append(str(evaluation.get("summary") or "交付检查未通过。"))
 
     if not issues:
         issues.append("未检测到明确失败原因。")
-        suggestions.append("检查原始错误日志")
-
-    return {
-        "issues": issues,
-        "suggestions": suggestions,
-        "repairable": len(suggestions) > 0,
-    }
+    if not suggestions:
+        suggestions.append("重新读取输出 Word 并检查模板字段定位。")
+    return {"issues": issues, "suggestions": suggestions, "repairable": True}
 
 
 def repair_state(state: AgentRunState) -> AgentRunState:
-    """Attempt to repair a failed state. Only runs once.
-
-    Side effects on `state`: updates status to 'repairing' during attempt,
-    then to either 'completed' or 'failed'.
-    """
     if state.retry_count >= state.max_retries:
         state.status = "failed"
-        state.errors.append("已达到最大修复次数，无法自动修复。")
+        state.errors.append("已达到最大自动修复次数，无法继续修复。")
         return state
 
     state.status = "repairing"
     state.retry_count += 1
-
     diagnosis = diagnose_failure(state)
     state.teacher_report = diagnosis
 
-    fields = state.fields or {}
+    fields = dict(state.fields or {})
+    task = state.task or {}
 
-    # Repair: fill missing fields with fallback
-    from ..lesson_generator import _local_fallback_fields
-    dynamic_fields = list(fields.keys()) if fields else []
-    fallback = _local_fallback_fields(
-        subject=str(fields.get("subject") or state.task.get("subject", "")),
-        grade=str(fields.get("grade") or state.task.get("grade", "")),
-        title=str(fields.get("lesson_title") or state.task.get("title", "未命名")),
-        material=str(state.task.get("material", "")),
-        class_hour=str(fields.get("class_hour") or state.task.get("class_hour", "1课时")),
-        dynamic_fields=dynamic_fields or [],
+    from ..lesson_generator import (
+        _local_fallback_fields,
+        normalize_lesson_field_aliases,
+        refine_lesson_field,
+        sanitize_lesson_title,
+        sanitize_material_hint,
     )
-    for k, v in fallback.items():
-        if k not in fields or not str(fields.get(k, "")).strip():
-            fields[k] = v
-    state.fields = fields
 
-    # Check if any real repair happened
-    non_empty = sum(1 for v in fields.values() if str(v or "").strip())
-    if non_empty > 0:
-        state.warnings.append("已通过 local fallback 修复空字段，建议老师预览后再导出。")
-        state.status = "fields_generated"  # ready to retry export
+    fields = normalize_lesson_field_aliases(fields, str(task.get("raw_text") or task.get("agent_request") or ""))
+    title = sanitize_lesson_title(
+        str(fields.get("lesson_title") or task.get("title") or ""),
+        str(task.get("raw_text") or task.get("agent_request") or ""),
+        str(task.get("title") or ""),
+    )
+    if title:
+        fields["lesson_title"] = title
+
+    material = sanitize_material_hint(str(task.get("material") or ""), str(task.get("raw_text") or ""), title)
+    dynamic_fields = list((state.template_analysis or {}).get("mapped_fields") or fields.keys())
+    fallback = _local_fallback_fields(
+        subject=str(fields.get("subject") or task.get("subject") or ""),
+        grade=str(fields.get("grade") or task.get("grade") or ""),
+        title=title or str(task.get("title") or "未命名课题"),
+        material=material,
+        class_hour=str(fields.get("class_hour") or task.get("class_hour") or "1课时"),
+        dynamic_fields=dynamic_fields,
+        class_type=str(fields.get("class_type") or task.get("class_type") or ""),
+    )
+
+    for key in dynamic_fields:
+        if not str(fields.get(key) or "").strip():
+            fields[key] = fallback.get(key, "")
+
+    if not str(fields.get("teaching_method") or "").strip() and str(fields.get("teaching_process") or "").strip():
+        fields["teaching_method"] = refine_lesson_field(
+            "teaching_method",
+            str(fields.get("teaching_process") or ""),
+            "derive_from_process",
+            title,
+        )
+
+    for key in ("teaching_process", "teaching_goals", "homework", "reflection"):
+        value = str(fields.get(key) or "")
+        if "帮我生成" in value or "生成一份" in value:
+            fields[key] = "\n".join(
+                line for line in value.splitlines()
+                if "帮我生成" not in line and "生成一份" not in line
+            ).strip() or fallback.get(key, value)
+
+    state.fields = fields
+    if any(str(value or "").strip() for value in fields.values()):
+        state.warnings.append("已执行自动修复：补齐空字段、派生教学方法并清理 prompt 泄漏风险。")
+        state.status = "fields_generated"
         state.next_action = "export_docx"
     else:
         state.status = "failed"
-        state.errors.append("修复失败：无法生成有效的教案内容。")
-
+        state.errors.append("自动修复失败：仍无法生成有效教案字段。")
     return state

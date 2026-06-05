@@ -12,6 +12,7 @@ from docx.oxml import OxmlElement
 from docx.shared import Pt
 from docx.text.paragraph import Paragraph
 
+from .agent_observer import build_teacher_diagnostic_report
 from .docx_filler import fill_docx_template
 from .few_shot_examples import select_few_shot_examples
 from .history_store import HistoryStore
@@ -392,6 +393,12 @@ class TeacherWorkflow:
         fill_report = fill_docx_template(template_path, fields, output_path, repeat_fill_mode=actual_repeat_mode)
         _enhance_system_template_docx(output_path, fields, template_path)
         template_analysis = analyze_template(template_path)
+        teacher_diagnostic_report = build_teacher_diagnostic_report(
+            template_analysis=template_analysis,
+            fill_report=fill_report.to_dict(),
+            evaluation_report={"passed": not fill_report.errors},
+            fields=fields,
+        ).to_dict()
         preview_pdf = render_docx_pdf_preview(output_path, preview_dir)
         preview_url = f"/preview/{quote(preview_pdf.name)}" if preview_pdf else None
         self._mark("doc_renderer", "Word 渲染器", "done", "已按原 Word 模板写入字段并生成下载文件。")
@@ -402,5 +409,6 @@ class TeacherWorkflow:
             "preview_url": preview_url,
             "template_analysis": template_analysis,
             "fill_report": fill_report.to_dict(),
+            "teacher_diagnostic_report": teacher_diagnostic_report,
             "workflow_trace": [event.to_dict() for event in self.trace],
         }

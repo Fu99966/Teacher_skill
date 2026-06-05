@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .deepseek_client import DeepSeekError, chat_json, check_deepseek_health, is_deepseek_configured, load_local_env
+from .lesson_patterns import infer_lesson_pattern, pattern_prompt_notes
 
 
 JSON_FIELD_NAMES = [
@@ -603,7 +604,7 @@ def _local_fallback_fields(
     scope = infer_lesson_scope(class_hour, class_type)
     hour_count = parse_class_hour_count(class_hour)
     hour_text = class_hour.strip() or f"{hour_count}课时"
-    title_text = sanitize_lesson_title(title, material, title)
+    title_text = sanitize_lesson_title(title, "", title)
     material_hint = sanitize_material_hint(material, "", title_text)
     if len(material_hint) > 140:
         material_hint = material_hint[:140] + "..."
@@ -665,6 +666,41 @@ def _local_fallback_fields(
         reflection = f"课后重点观察学生对《{title_text}》核心方法的掌握情况，是否能在新情境中表达和应用；根据反馈调整后续教学节奏和分层练习。"
         key_points = f"围绕《{title_text}》掌握本课核心知识、关键方法和课堂产出要求。"
         difficult_points = "将抽象知识转化为可观察、可操作、可表达的学习任务，并帮助不同层次学生完成理解迁移。"
+
+    pattern = infer_lesson_pattern(class_type, "", title_text, class_hour)
+    if scope == "single_lesson" and pattern.key == "training_lesson":
+        single_process = (
+            f"一、任务说明：明确《{title_text}》实训目标、操作规范和成果要求。\n"
+            "二、教师示范：演示关键步骤、常见错误和安全注意事项。\n"
+            "三、学生操作：学生按任务单完成分步训练，教师巡回指导并即时纠偏。\n"
+            "四、成果检查：围绕操作结果、记录完整度和问题修正情况进行评价。\n"
+            "五、总结反馈：归纳操作要点，布置实训报告或改进任务。"
+        )
+        teaching_method = "采用任务驱动、示范教学、操作训练、巡回指导和即时反馈相结合的方式组织实训。"
+        homework = f"完成《{title_text}》实训记录，整理关键操作步骤、问题现象和改进方法。"
+        reflection = "课后关注学生操作规范、常见错误、设备准备和个别学生支持是否到位。"
+    elif scope == "single_lesson" and pattern.key == "experiment_lesson":
+        single_process = (
+            f"一、提出实验问题：围绕《{title_text}》明确观察对象、变量和安全要求。\n"
+            "二、实验操作：学生分组完成实验步骤，记录现象和数据。\n"
+            "三、数据分析：对实验结果进行比较、解释和误差分析。\n"
+            "四、交流评价：小组汇报结论，教师补充关键原理。\n"
+            "五、总结提升：归纳实验方法和后续探究方向。"
+        )
+        teaching_method = "采用探究式教学、实验演示、小组合作、数据分析和交流评价相结合的方式。"
+        homework = f"整理《{title_text}》实验数据，完成实验报告，并分析可能的误差来源。"
+        reflection = "课后关注安全规范、变量控制、数据真实性和结论表达质量。"
+    elif scope == "single_lesson" and pattern.key == "review_lesson":
+        single_process = (
+            f"一、知识网络：梳理《{title_text}》核心概念、方法和易错点。\n"
+            "二、典型问题：选择代表性题目进行错因分析和方法归纳。\n"
+            "三、变式训练：围绕重点难点设计分层练习。\n"
+            "四、迁移应用：解决综合情境任务，检查知识调用能力。\n"
+            "五、总结提升：形成复习清单和后续补弱任务。"
+        )
+        teaching_method = "采用问题驱动、错题讲评、思维导图、分层训练和同伴互助相结合的方式。"
+        homework = f"完成《{title_text}》错题订正、知识结构图和一组变式提升练习。"
+        reflection = "课后关注学生知识结构是否形成、薄弱点是否暴露、分层任务是否有效。"
 
     teaching_process = {
         "single_lesson": single_process,
@@ -738,6 +774,11 @@ def build_lesson_prompt(
     stage = _stage_name(infer_school_stage(grade))
     material_text = material.strip() or "用户没有提供教材内容，请生成通用版教案，并避免编造具体教材页码。"
     creative = creative_mode.strip() or "常规稳健"
+    lesson_pattern = infer_lesson_pattern(class_type, teaching_style, title, class_hour)
+    pattern_block = f"""
+# 课型模板提示
+{pattern_prompt_notes(lesson_pattern)}
+"""
 
     anti_repetition_block = ""
     if anti_repetition_context.strip():
@@ -787,6 +828,7 @@ def build_lesson_prompt(
 4. 生成深度：输出深度为【{generation_depth}】。
 5. 风格控制：本次生成风格为【{creative}】。
 6. 模板优先：不要新增模板字段之外的 Key；不要遗漏给定字段；不要输出模板占位符。
+{pattern_block}
 {anti_repetition_block}
 {few_shot_block}
 {context_block}

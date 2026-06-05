@@ -4,15 +4,20 @@ const supplementFields = document.querySelector("#supplement-fields");
 const useSchoolTemplate = document.querySelector("#use-school-template");
 const templateUploadWrap = document.querySelector("#template-upload-wrap");
 const templateInput = document.querySelector("#template-input");
+const materialFile = document.querySelector("#material-file");
 const repeatModeWrap = document.querySelector("#repeat-mode-wrap");
 const generateButton = document.querySelector("#generate-button");
 const previewCard = document.querySelector("#preview-card");
 const previewGroupsRoot = document.querySelector("#preview-groups");
 const statusLine = document.querySelector("#status-line");
+const teacherDiagnosticCard = document.querySelector("#teacher-diagnostic-card");
+const teacherDiagnosticSummary = document.querySelector("#teacher-diagnostic-summary");
+const teacherDiagnosticList = document.querySelector("#teacher-diagnostic-list");
 const scopeHint = document.querySelector("#scope-hint");
 const methodWarning = document.querySelector("#method-warning");
 const deriveMethodButton = document.querySelector("#derive-method-button");
 const exportButton = document.querySelector("#export-button");
+const rememberEditButton = document.querySelector("#remember-edit-button");
 const regenerateButton = document.querySelector("#regenerate-button");
 const deliveryCard = document.querySelector("#delivery-card");
 const deliveryChecklist = document.querySelector("#delivery-checklist");
@@ -100,6 +105,7 @@ let currentWorkflowTrace = [];
 let currentTemplateAnalysis = null;
 let currentFillReport = null;
 let currentEvaluationReport = null;
+let currentTeacherDiagnosticReport = null;
 
 function apiFetch(path, options = {}) {
   return fetch(path, options);
@@ -380,6 +386,7 @@ function buildDiagnostics(data = {}) {
     template_mode: data.template_mode || (useSchoolTemplate.checked ? "upload" : "system"),
     generation_backend: data.generation_backend || currentGenerationBackend,
     repeat_fill_mode: data.repeat_fill_mode || currentRequestContext.repeat_fill_mode || selectedRepeatFillMode(),
+    teacher_diagnostic_report: data.teacher_diagnostic_report || currentTeacherDiagnosticReport,
     template_fields: data.template_fields || currentTemplateAnalysis?.mapped_fields || [],
     template_analysis: data.template_analysis || currentTemplateAnalysis,
     fill_report: data.fill_report || currentFillReport,
@@ -389,12 +396,36 @@ function buildDiagnostics(data = {}) {
   diagnosticsOutput.textContent = JSON.stringify(report, null, 2);
 }
 
+function renderTeacherDiagnostic(report) {
+  currentTeacherDiagnosticReport = report || currentTeacherDiagnosticReport;
+  const current = currentTeacherDiagnosticReport;
+  if (!teacherDiagnosticCard || !current) return;
+  teacherDiagnosticCard.hidden = false;
+  teacherDiagnosticCard.dataset.status = current.status || "needs_review";
+  teacherDiagnosticSummary.textContent = current.summary || "已生成诊断报告。";
+  teacherDiagnosticList.innerHTML = "";
+  const written = current.written_fields || [];
+  const unwritten = current.unwritten_fields || [];
+  const reasons = current.reasons || [];
+  [
+    `已写入字段：${written.length}`,
+    `未写入字段：${unwritten.length}`,
+    ...(unwritten.slice(0, 3).map((item) => `${item.label || item.field}：${item.reason || "未写入"}`)),
+    ...(reasons.slice(0, 2))
+  ].forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    teacherDiagnosticList.append(item);
+  });
+}
+
 function applyResult(data) {
   currentFields = data.fields || {};
   currentTemplateId = data.template_id || currentTemplateId || "";
   currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis || null;
   currentFillReport = data.fill_report || currentFillReport || null;
   currentEvaluationReport = data.evaluation_report || currentEvaluationReport || null;
+  currentTeacherDiagnosticReport = data.teacher_diagnostic_report || currentTeacherDiagnosticReport || null;
   currentGenerationBackend = data.generation_backend || currentGenerationBackend || "";
   currentReviewReport = data.review_report ?? currentReviewReport;
   currentWorkflowTrace = data.workflow_trace || currentWorkflowTrace || [];
@@ -402,6 +433,7 @@ function applyResult(data) {
   previewCard.hidden = false;
   deliveryCard.hidden = true;
   renderPreview(currentFields);
+  renderTeacherDiagnostic(currentTeacherDiagnosticReport);
   buildDiagnostics(data);
   setDownload(data.download_url || null);
   updateTeachingMethodGuard();
@@ -524,6 +556,33 @@ async function deriveTeachingMethod() {
   }
 }
 
+async function rememberCurrentEdit() {
+  const editedFields = collectEditedFields();
+  if (!Object.keys(editedFields).length) {
+    setStatus("还没有可记住的教案内容。", true);
+    return;
+  }
+  rememberEditButton.disabled = true;
+  try {
+    const response = await apiFetch("/api/remember-edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: currentTemplateId || "__sample__",
+        fields: editedFields,
+        request_context: currentRequestContext
+      })
+    });
+    const data = await readApiJson(response);
+    if (!response.ok) throw new Error(data.error || "记住修改失败");
+    showToast(data.message || "已记住这次修改。");
+  } catch (error) {
+    setStatus(error.message || "记住修改失败", true);
+  } finally {
+    rememberEditButton.disabled = false;
+  }
+}
+
 async function exportEditedDocument() {
   const editedFields = collectEditedFields();
   if (!hasTeachingMethod(editedFields)) {
@@ -559,6 +618,8 @@ async function exportEditedDocument() {
     currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis;
     currentFillReport = data.fill_report || currentFillReport;
     currentEvaluationReport = data.evaluation_report || currentEvaluationReport;
+    currentTeacherDiagnosticReport = data.teacher_diagnostic_report || currentTeacherDiagnosticReport;
+    renderTeacherDiagnostic(currentTeacherDiagnosticReport);
     buildDiagnostics(data);
     setDownload(data.download_url);
     renderDelivery(data);
@@ -709,6 +770,7 @@ useSchoolTemplate.addEventListener("change", () => {
   if (repeatModeWrap) repeatModeWrap.hidden = !useSchoolTemplate.checked;
 });
 deriveMethodButton.addEventListener("click", deriveTeachingMethod);
+rememberEditButton.addEventListener("click", rememberCurrentEdit);
 exportButton.addEventListener("click", exportEditedDocument);
 regenerateButton.addEventListener("click", () => lessonForm.requestSubmit());
 backEditButton.addEventListener("click", () => {

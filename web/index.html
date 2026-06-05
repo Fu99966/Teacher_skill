@@ -109,6 +109,12 @@
               ></textarea>
             </label>
 
+            <label class="field wide material-upload">
+              <span>上传教材资料（可选）</span>
+              <input id="material-file" name="material_file" type="file" accept=".txt,.md,.docx,.pdf" />
+              <small>支持 txt、md、docx；PDF 先做文本尝试，扫描版 OCR 后续支持。</small>
+            </label>
+
             <div class="form-actions">
               <button type="submit" class="primary-button" id="generate-button">生成教案</button>
             </div>
@@ -122,12 +128,18 @@
               <h2 id="preview-title">确认字段内容</h2>
             </div>
             <div class="section-actions">
+              <button type="button" class="secondary-button" id="remember-edit-button">记住这次修改</button>
               <button type="button" class="secondary-button" id="regenerate-button">重新生成</button>
               <button type="button" class="primary-button" id="export-button">导出 Word</button>
             </div>
           </div>
 
           <div class="status-line" id="status-line" aria-live="polite">等待输入需求</div>
+          <article class="teacher-diagnostic-card" id="teacher-diagnostic-card" hidden>
+            <h3>生成诊断</h3>
+            <p id="teacher-diagnostic-summary"></p>
+            <ul id="teacher-diagnostic-list"></ul>
+          </article>
           <div class="scope-hint" id="scope-hint" hidden></div>
           <div class="method-warning" id="method-warning" hidden>
             <strong>教学方法的运用为空，请补充后再导出。</strong>

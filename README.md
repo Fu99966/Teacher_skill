@@ -1,18 +1,43 @@
-# Teacher Skill
+# Teacher Skill 教案助手
 
-Teacher Skill 是一个面向教师备课的 Word 教案模板填充工具。核心原则是：**Word 模板决定格式，AI 只生成内容**。
+Teacher Skill 是一个面向教师备课的 Word 教案智能体。核心原则是：**Word 模板决定格式，AI 只生成内容**。
 
-## 能做什么
+## 当前能力
 
-1. 老师上传学校原始 `.docx` 教案模板。
-2. 系统自动识别模板中的 `{{field_name}}` 占位符和常见表格标签。
-3. DeepSeek 根据学科、年级、课题、课时、教材内容和补充要求生成严格 JSON。
-4. 系统把 JSON 写回模板对应位置，尽量保留原模板字体、字号、段落、表格、页眉页脚和布局。
-5. 如果不上传模板，Web 端可使用系统默认模板生成标准教案。
+- 一句话生成教案；没有配置 DeepSeek 时自动使用本地 fallback 初稿。
+- 可上传学校 `.docx` 教案模板，自动识别占位符和常见中文表格字段。
+- 支持复杂表格、合并单元格、并列表头、重复教案表格的 `first_only / all` 填充策略。
+- 支持系统标准模板导出，并为项目课生成真正的 Word 课时分配表。
+- 支持教师可读的生成诊断报告：识别了什么、写入了什么、没写入什么、原因是什么。
+- 支持模板画像缓存，记住成功的模板字段映射。
+- 支持“记住这次修改”，后续同类教案生成时会参考老师修改样例。
+- 支持轻量教材 RAG：粘贴教材内容，或上传 txt / md / docx / PDF 文本资料。
+
+## Web 使用
+
+```powershell
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+python -m teacher_agent.cli web --port 8765
+```
+
+打开：
+
+```text
+http://127.0.0.1:8765/
+```
+
+基本流程：
+
+1. 输入一句话需求，例如：`帮我生成一份24级物联网班 PCB板设计课的32课时教案`。
+2. 可选：勾选“使用学校 Word 模板”并上传 `.docx`。
+3. 可选：粘贴或上传教材资料。
+4. 生成教案，预览并编辑字段。
+5. 导出 Word。
 
 ## 模板写法
 
-### 方式一：占位符模板
+### 占位符模板
 
 在 Word 中写：
 
@@ -20,116 +45,90 @@ Teacher Skill 是一个面向教师备课的 Word 教案模板填充工具。核
 {{lesson_title}}
 {{teaching_goals}}
 {{teaching_process}}
+{{teaching_method}}
 {{homework}}
+{{reflection}}
 ```
 
-占位符字段可以是标准字段，也可以是自定义字段，例如：
+也支持中文占位符和自定义字段：
 
 ```text
+{{教学目标}}
 {{warm_up}}
-{{safety_rules}}
-{{core_training}}
 {{assessment}}
 ```
 
-系统会要求 AI 只返回这些字段，不允许新增模板外字段。
+### 学校原表格模板
 
-### 方式二：学校原表格模板
-
-如果模板没有占位符，也可以保留学校原表格。例如左侧单元格是：
+如果模板没有占位符，只要表格中有常见标签，也会尽量识别：
 
 ```text
-课题
-教学目标
-教学过程
-作业设计
-教学反思
+课题 / 授课班级 / 教学目的 / 重点难点 / 教具挂图
+主要教学内容 / 教学方法的运用 / 作业 / 课后小记
 ```
 
-右侧为空时，系统会把内容写入右侧单元格；如果标签和空白区域在同一单元格，会在标签后追加内容。
-
-目前支持的常见标签包括：课题、授课内容、学科、年级、班级、课时、教学目标、核心素养目标、知识目标、能力目标、情感目标、教学重点、教学难点、教学重难点、教学准备、教具准备、学情分析、教学过程、教学流程、教学环节、教学活动、教师活动、学生活动、设计意图、板书设计、作业设计、教学反思。
-
-## DeepSeek 配置
-
-复制环境变量文件：
-
-```powershell
-copy .env.example .env
-```
-
-填写：
+并列表头也支持：
 
 ```text
-DEEPSEEK_API_KEY=你的 DeepSeek API Key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-pro
+主要教学内容 | 教学方法的运用
+空白填写区   | 空白填写区
 ```
 
-## 常用命令
-
-安装依赖：
-
-```powershell
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-```
+## CLI 示例
 
 扫描模板：
 
 ```powershell
-python -m teacher_agent.cli scan-template templates\sample_lesson_template.docx
+python -m teacher_agent.cli scan-template templates/sample_lesson_template.docx
 ```
 
-一步生成 Word：
+一步生成：
 
 ```powershell
-python -m teacher_agent.cli generate --template templates\sample_lesson_template.docx --subject 语文 --grade 四年级 --title 桂林山水 --material-file examples\sample_material.md --output outputs\桂林山水教案.docx --no-strict-ai
+python -m teacher_agent.cli generate `
+  --template templates/sample_lesson_template.docx `
+  --subject 物联网 `
+  --grade 24级物联网班 `
+  --title PCB板设计 `
+  --class-hour 32课时 `
+  --material-file examples/sample_material.md `
+  --output outputs/PCB板设计教案.docx `
+  --no-strict-ai
 ```
 
-只生成 JSON：
+诊断真实模板：
 
 ```powershell
-python -m teacher_agent.cli draft-lesson --template templates\sample_lesson_template.docx --subject 语文 --grade 四年级 --title 桂林山水 --material-file examples\sample_material.md --output outputs\lesson_fields.json --no-strict-ai
+python -m teacher_agent.cli diagnose-template `
+  --template tests/fixtures/教案模板.docx `
+  --subject 物联网 `
+  --grade 24级物联网班 `
+  --title 传感器基础 `
+  --material-file examples/sample_material.md `
+  --output-dir outputs/diagnose_real_template `
+  --no-strict-ai
 ```
 
-用 JSON 填充模板：
+## DeepSeek 配置
 
-```powershell
-python -m teacher_agent.cli fill-template --template templates\sample_lesson_template.docx --data outputs\lesson_fields.json --output outputs\桂林山水教案.docx
-```
-
-启动网页：
-
-```powershell
-python -m teacher_agent.cli web
-```
-
-打开：
+复制 `.env.example` 为 `.env`，填写：
 
 ```text
-http://127.0.0.1:8765
+DEEPSEEK_API_KEY=你的 Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-pro
 ```
 
-## strict_ai 与 fallback
-
-- `--strict-ai`：DeepSeek 未配置或调用失败时直接报错，不生成伪造教案。
-- `--no-strict-ai`：DeepSeek 不可用时生成本地结构化占位草稿，并明确返回 `generation_backend="local_fallback"`。
-
-Web 端同样会返回 `generation_backend`、`fill_report` 和自动检查结果。
-
-## 格式保持边界
-
-系统不会重建整个 Word 文档，也不会让 AI 决定 Word 样式。它会尽量保留原模板格式。
-
-可稳定保持：原表格结构、边框、列宽、页眉页脚、段落样式、单元格布局。
-
-可能无法完全保持：一个占位符被 Word 拆成多个 run 且每个 run 使用不同局部样式时，系统会以第一个有效 run 样式承载替换内容。
+`strict_ai=true` 时，模型不可用会直接报错；`strict_ai=false` 时，会使用本地 fallback 初稿并明确标记 `generation_backend=local_fallback`。
 
 ## 验证
 
 ```powershell
+node --check web/static/app.js
 python -m compileall teacher_agent
 pytest
-node --check web\static\app.js
 ```
+
+## 格式保持边界
+
+系统不会让 AI 直接决定 Word 格式；格式来自 Word 模板。`python-docx` 能尽量保留字体、段落、表格边框、列宽、页眉页脚和原布局。但极端复杂的嵌套表格、文本框、浮动对象或扫描版 PDF 教材仍可能需要人工复核。

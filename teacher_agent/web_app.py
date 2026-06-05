@@ -10,6 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from .agent_observer import build_teacher_diagnostic_report
+from .agent_core.memory import AgentMemoryStore
 from .agent_core.executor import AgentExecutor
 from .agent_core.evaluator import evaluate_lesson_output
 from .agent_core.planner import build_plan
@@ -33,6 +35,8 @@ from .lesson_generator import (
 )
 from .sample_template import create_sample_template
 from .template_parser import analyze_template
+from .template_profile import TemplateProfileStore
+from .material_ingestion import extract_material_from_upload, merge_material_text
 from .workflow import LessonRequest, TeacherWorkflow, build_workflow_schema
 
 
@@ -92,6 +96,14 @@ def _form_value(form: cgi.FieldStorage, name: str, default: str = "") -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _material_from_form(form: cgi.FieldStorage, typed_material: str) -> tuple[str, dict | None]:
+    item = form["material_file"] if "material_file" in form else None
+    if item is None or not item.filename:
+        return typed_material, None
+    extraction = extract_material_from_upload(Path(item.filename).name, item.file)
+    return merge_material_text(typed_material, extraction), extraction.to_dict()
 
 
 def _parse_probe(query: str) -> bool:
@@ -444,6 +456,15 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
             return
 
+        if parsed.path == "/api/remember-edit":
+            try:
+                self._handle_remember_edit()
+            except ValueError as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
+            except Exception as exc:
+                self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
         if parsed.path == "/api/agent-preview":
             try:
                 self._handle_agent_preview()
@@ -565,7 +586,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         grade = _form_value(form, "grade", "")
         title = _form_value(form, "title", "")
         class_hour = _form_value(form, "class_hour", "1课时")
-        material = _form_value(form, "material", "")
+        material, material_extraction = _material_from_form(form, _form_value(form, "material", ""))
         class_type = _form_value(form, "class_type", DEFAULT_CLASS_TYPE)
         teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
         strict_ai = _form_bool(form, "strict_ai", False)
@@ -853,6 +874,9 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         template_path = self._save_template(form, allow_sample=template_mode == "system")
         template_analysis = analyze_template(template_path)
+        if material_extraction:
+            template_analysis = dict(template_analysis)
+            template_analysis["material_extraction"] = material_extraction
         return (
             form,
             subject,
@@ -924,6 +948,21 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
 
         refined = refine_lesson_field(field, value, action, instruction)
         self._send(*_json_bytes({"field": field, "value": refined}))
+
+    def _handle_remember_edit(self) -> None:
+        content_length = int(self.headers.get("Content-Length", "0") or "0")
+        payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+        fields = payload.get("fields")
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("缺少可记忆的教案字段")
+        task = payload.get("request_context") if isinstance(payload.get("request_context"), dict) else {}
+        template_id = str(payload.get("template_id") or task.get("template_id") or "__sample__")
+        record = AgentMemoryStore(AGENT_MEMORY_DB).remember_teacher_edit(
+            template_id=template_id,
+            task=task,
+            fields=fields,
+        )
+        self._send(*_json_bytes({"ok": True, "memory": record, "message": "已记住本次修改，下次同类教案会优先参考。"}))
 
     def _read_agent_preview_payload(self) -> dict:
         content_type = self.headers.get("Content-Type", "")
@@ -1112,6 +1151,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "generation_backend": generation_backend,
             "review_report": result.state.review_report,
         }
+        teacher_diagnostic_report = build_teacher_diagnostic_report(
+            template_analysis=export_result.get("template_analysis") or template_analysis,
+            fill_report=export_result.get("fill_report"),
+            evaluation_report=result.state.evaluation_report,
+            fields=result.state.fields or {},
+            template_profile=result.state.template_profile,
+        ).to_dict()
 
         payload: dict[str, Any] = {
             **draft_result,
@@ -1130,6 +1176,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "download_url": export_result.get("download_url"),
             "preview_url": export_result.get("preview_url"),
             "fill_report": export_result.get("fill_report"),
+            "teacher_diagnostic_report": teacher_diagnostic_report,
+            "teacher_report": result.state.teacher_report,
             "workflow_trace": result.state.trace,
             "template_mode": actual_template_mode,
             "repeat_fill_mode": repeat_fill_mode,
@@ -1203,6 +1251,14 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             fill_report=result.get("fill_report"),
         )
         result["evaluation_report"] = evaluation.to_dict()
+        teacher_diagnostic = build_teacher_diagnostic_report(
+            template_analysis=result.get("template_analysis"),
+            fill_report=result.get("fill_report"),
+            evaluation_report=result["evaluation_report"],
+            fields=fields,
+        )
+        result["teacher_diagnostic_report"] = teacher_diagnostic.to_dict()
+        result["teacher_report"] = {"summary": teacher_diagnostic.to_markdown(), "passed": teacher_diagnostic.status == "passed"}
 
         prior_trace = payload.get("workflow_trace")
         if isinstance(prior_trace, list):
@@ -1232,6 +1288,21 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             workflow_trace=result["workflow_trace"],
         )
         result["history_item"] = history_item
+
+        if evaluation.passed and (result.get("fill_report") or {}).get("filled_non_empty_count", 0) > 0:
+            try:
+                profile_store = TemplateProfileStore(OUTPUT_DIR)
+                profile_id = profile_store.template_fingerprint(template_path)
+                profile_store.save_successful_mapping(
+                    profile_id,
+                    (result.get("template_analysis") or {}).get("table_mappings", {}),
+                    result.get("fill_report") or {},
+                    mapped_fields=(result.get("template_analysis") or {}).get("mapped_fields", []),
+                    repeat_fill_mode=repeat_fill_mode,
+                    known_risks=teacher_diagnostic.reasons,
+                )
+            except Exception:
+                pass
 
         if not evaluation.passed:
             result["error"] = evaluation.summary

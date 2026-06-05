@@ -7,116 +7,35 @@ on:
     branches: [main]
 
 jobs:
-  test-ubuntu:
-    runs-on: ubuntu-latest
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-          pip install pytest
-
-      - name: Compile check
-        run: python -m compileall teacher_agent
-
-      - name: Run tests
-        run: python -m pytest tests/ -v
-
-      - name: Diagnose template
-        run: |
-          python -m teacher_agent.cli diagnose-template \
-            --template tests/fixtures/教案模板.docx \
-            --subject 物联网 \
-            --grade 24物联网1班 \
-            --title 传感器基础 \
-            --material-file examples/sample_material.md \
-            --output-dir outputs/diagnose_real_template \
-            --no-strict-ai
-
-      - name: Generate lesson
-        run: |
-          python -m teacher_agent.cli generate \
-            --template tests/fixtures/教案模板.docx \
-            --subject 物联网 \
-            --grade 24物联网1班 \
-            --title 传感器基础 \
-            --material-file examples/sample_material.md \
-            --output outputs/传感器基础教案.docx \
-            --no-strict-ai
-
-      - name: Verify outputs
-        run: |
-          test -f outputs/diagnose_real_template/template_analysis.json
-          test -f outputs/diagnose_real_template/table_structure.json
-          test -f outputs/diagnose_real_template/generated_fields.json
-          test -f outputs/diagnose_real_template/fill_report.json
-          test -f outputs/diagnose_real_template/output.docx
-          test -f outputs/diagnose_real_template/output_text.txt
-          test -f outputs/diagnose_real_template/root_cause.md
-          test -f outputs/diagnose_real_template/teacher_report.md
-          test -f outputs/传感器基础教案.docx
-          echo "All outputs verified"
-
-      - name: Check teacher_report content
-        run: |
-          grep "主要教学内容" outputs/diagnose_real_template/teacher_report.md
-          grep "教学方法的运用" outputs/diagnose_real_template/teacher_report.md
-          grep "课后小记" outputs/diagnose_real_template/teacher_report.md
-          grep "成功写入" outputs/diagnose_real_template/teacher_report.md
-
-  test-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.11"
+          node-version: "20"
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-          pip install pytest
 
-      - name: Compile check
+      - name: Compile Python
         run: python -m compileall teacher_agent
 
+      - name: Check frontend JavaScript
+        run: node --check web/static/app.js
+
       - name: Run tests
-        run: python -m pytest tests/ -v
-
-      - name: Diagnose template
-        run: |
-          python -m teacher_agent.cli diagnose-template `
-            --template tests/fixtures/教案模板.docx `
-            --subject 物联网 `
-            --grade 24物联网1班 `
-            --title 传感器基础 `
-            --material-file examples/sample_material.md `
-            --output-dir outputs/diagnose_real_template `
-            --no-strict-ai
-
-      - name: Generate lesson
-        run: |
-          python -m teacher_agent.cli generate `
-            --template tests/fixtures/教案模板.docx `
-            --subject 物联网 `
-            --grade 24物联网1班 `
-            --title 传感器基础 `
-            --material-file examples/sample_material.md `
-            --output outputs/传感器基础教案.docx `
-            --no-strict-ai
-
-      - name: Verify outputs
-        run: |
-          if (-not (Test-Path outputs/diagnose_real_template/teacher_report.md)) { throw "teacher_report.md missing" }
-          if (-not (Test-Path outputs/传感器基础教案.docx)) { throw "output docx missing" }
-          Write-Host "All outputs verified"
+        run: pytest

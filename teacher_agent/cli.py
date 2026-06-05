@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .agent_observer import build_teacher_diagnostic_report
 from .deepseek_client import DeepSeekError
 from .docx_filler import fill_docx_template
 from .lesson_generator import (
@@ -66,8 +67,20 @@ def cmd_scan_template(args: argparse.Namespace) -> None:
 
 def cmd_fill_template(args: argparse.Namespace) -> None:
     data = _load_json(args.data)
+    template_analysis = analyze_template(args.template)
     report = fill_docx_template(args.template, data, args.output)
-    payload = {"success": not report.errors, "output": str(report.path), "fill_report": report.to_dict()}
+    teacher_report = build_teacher_diagnostic_report(
+        template_analysis=template_analysis,
+        fill_report=report.to_dict(),
+        evaluation_report={"passed": not report.errors},
+        fields=data,
+    )
+    payload = {
+        "success": not report.errors,
+        "output": str(report.path),
+        "fill_report": report.to_dict(),
+        "teacher_diagnostic_report": teacher_report.to_dict(),
+    }
     _print_json(payload)
     if report.errors:
         raise ValueError("; ".join(report.errors))
@@ -119,6 +132,12 @@ def cmd_generate(args: argparse.Namespace) -> None:
         (template_analysis or {}).get("field_context"),
     )
     report = fill_docx_template(args.template, fields, args.output)
+    teacher_report = build_teacher_diagnostic_report(
+        template_analysis=template_analysis,
+        fill_report=report.to_dict(),
+        evaluation_report={"passed": not report.errors},
+        fields=fields,
+    )
     payload = {
         "success": not report.errors,
         "output": str(report.path),
@@ -126,6 +145,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
         "template_fields": template_fields,
         "fields": fields,
         "fill_report": report.to_dict(),
+        "teacher_diagnostic_report": teacher_report.to_dict(),
     }
     _print_json(payload)
     if report.errors:

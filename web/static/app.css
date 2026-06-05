@@ -470,6 +470,33 @@ textarea:focus {
   color: var(--error);
 }
 
+.teacher-diagnostic-card {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(120, 140, 93, 0.22);
+  border-radius: var(--radius);
+  background: rgba(120, 140, 93, 0.08);
+}
+
+.teacher-diagnostic-card[data-status="failed"] {
+  border-color: rgba(216, 92, 71, 0.24);
+  background: rgba(216, 92, 71, 0.08);
+}
+
+.teacher-diagnostic-card h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.teacher-diagnostic-card p {
+  margin: 0 0 8px;
+}
+
+.teacher-diagnostic-card ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .preview-section {
   border: 1px solid var(--border);
   border-radius: var(--radius);
