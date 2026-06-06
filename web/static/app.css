@@ -604,7 +604,8 @@ textarea:focus {
   color: var(--error);
 }
 
-.template-write-health {
+.template-write-health,
+.word-quality-health {
   margin: 18px 0;
   padding: 14px;
   border: 1px solid var(--border);
@@ -612,11 +613,13 @@ textarea:focus {
   background: #fdfbf6;
 }
 
-.template-write-health h3 {
+.template-write-health h3,
+.word-quality-health h3 {
   margin-top: 0;
 }
 
-.template-write-health ul {
+.template-write-health ul,
+.word-quality-health ul {
   display: grid;
   gap: 8px;
   margin: 12px 0 0;
@@ -624,17 +627,21 @@ textarea:focus {
   list-style: none;
 }
 
-.template-write-health li {
+.template-write-health li,
+.word-quality-health li {
   color: #55683c;
   font-weight: 800;
 }
 
 .template-write-health li.missing,
-.template-write-warning {
+.template-write-warning,
+.word-quality-health li.missing,
+.word-quality-warning {
   color: var(--error);
 }
 
-.template-write-warning {
+.template-write-warning,
+.word-quality-warning {
   margin: 12px 0 0;
   font-weight: 850;
 }

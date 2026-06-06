@@ -25,6 +25,10 @@ const templateWriteHealth = document.querySelector("#template-write-health");
 const templateWriteHealthList = document.querySelector("#template-write-health-list");
 const templateRepeatSummary = document.querySelector("#template-repeat-summary");
 const templateWriteWarning = document.querySelector("#template-write-warning");
+const wordQualityHealth = document.querySelector("#word-quality-health");
+const wordQualitySummary = document.querySelector("#word-quality-summary");
+const wordQualityHealthList = document.querySelector("#word-quality-health-list");
+const wordQualityWarning = document.querySelector("#word-quality-warning");
 const qualityJudgment = document.querySelector("#quality-judgment");
 const qualityScore = document.querySelector("#quality-score");
 const qualityRisk = document.querySelector("#quality-risk");
@@ -110,6 +114,7 @@ let currentTemplateAnalysis = null;
 let currentFillReport = null;
 let currentEvaluationReport = null;
 let currentTeacherDiagnosticReport = null;
+let currentOutputQualityReport = null;
 
 function apiFetch(path, options = {}) {
   return fetch(path, options);
@@ -394,6 +399,7 @@ function buildDiagnostics(data = {}) {
     template_fields: data.template_fields || currentTemplateAnalysis?.mapped_fields || [],
     template_analysis: data.template_analysis || currentTemplateAnalysis,
     fill_report: data.fill_report || currentFillReport,
+    output_quality_report: data.output_quality_report || currentOutputQualityReport,
     evaluation_report: data.evaluation_report || currentEvaluationReport,
     agent_trace: data.workflow_trace || currentWorkflowTrace
   };
@@ -428,6 +434,7 @@ function applyResult(data) {
   currentTemplateId = data.template_id || currentTemplateId || "";
   currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis || null;
   currentFillReport = data.fill_report || currentFillReport || null;
+  currentOutputQualityReport = data.output_quality_report || currentOutputQualityReport || null;
   currentEvaluationReport = data.evaluation_report || currentEvaluationReport || null;
   currentTeacherDiagnosticReport = data.teacher_diagnostic_report || currentTeacherDiagnosticReport || null;
   currentGenerationBackend = data.generation_backend || currentGenerationBackend || "";
@@ -621,6 +628,7 @@ async function exportEditedDocument() {
     currentFields = editedFields;
     currentTemplateAnalysis = data.template_analysis || currentTemplateAnalysis;
     currentFillReport = data.fill_report || currentFillReport;
+    currentOutputQualityReport = data.output_quality_report || currentOutputQualityReport;
     currentEvaluationReport = data.evaluation_report || currentEvaluationReport;
     currentTeacherDiagnosticReport = data.teacher_diagnostic_report || currentTeacherDiagnosticReport;
     renderTeacherDiagnostic(currentTeacherDiagnosticReport);
@@ -712,6 +720,7 @@ function renderDelivery(data = {}) {
     deliveryChecklist.append(item);
   });
   renderTemplateWriteHealth(data.fill_report || currentFillReport);
+  renderWordQualityHealth(data.output_quality_report || currentOutputQualityReport);
 }
 
 function renderTemplateWriteHealth(fillReport = null) {
@@ -746,6 +755,42 @@ function renderTemplateWriteHealth(fillReport = null) {
     templateRepeatSummary.textContent = "";
     templateRepeatSummary.hidden = true;
   }
+}
+
+function renderWordQualityHealth(report = null) {
+  if (!wordQualityHealth || !wordQualityHealthList || !report) {
+    if (wordQualityHealth) wordQualityHealth.hidden = true;
+    return;
+  }
+
+  const checks = report.checks || {};
+  const labels = {
+    no_prompt_leak: "未发现 prompt 泄漏",
+    no_unnamed_title: "课题已识别",
+    teaching_method_written: "教学方法已写入",
+    material_basis_clean: "教材依据正常",
+    punctuation_clean: "中文标点与空格正常",
+    teaching_method_fit_for_narrow_cell: "教学方法栏长度适合"
+  };
+
+  wordQualityHealth.hidden = false;
+  wordQualitySummary.textContent = `体检评分：${Number(report.score ?? 0)}/100`;
+  wordQualityHealthList.innerHTML = "";
+  Object.entries(labels).forEach(([key, label]) => {
+    if (!(key in checks)) return;
+    const passed = checks[key] === true;
+    const item = document.createElement("li");
+    item.classList.toggle("missing", !passed);
+    item.textContent = `${passed ? "✅" : "⚠️"} ${label}`;
+    wordQualityHealthList.append(item);
+  });
+
+  const issues = [...(report.errors || []), ...(report.warnings || [])];
+  if (report.passed === false) {
+    issues.unshift("导出体检发现问题，建议下载前检查。");
+  }
+  wordQualityWarning.hidden = issues.length === 0;
+  wordQualityWarning.textContent = issues.join("；");
 }
 
 async function loadAiStatus(probe = false) {

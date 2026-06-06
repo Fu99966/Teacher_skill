@@ -37,6 +37,7 @@ from .sample_template import create_sample_template
 from .template_parser import analyze_template
 from .template_profile import TemplateProfileStore
 from .material_ingestion import extract_material_from_upload, merge_material_text
+from .output_quality import inspect_docx_delivery_quality
 from .workflow import LessonRequest, TeacherWorkflow, build_workflow_schema
 
 
@@ -651,6 +652,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             output_path,
             repeat_fill_mode=repeat_fill_mode,
         )
+        output_quality_report = inspect_docx_delivery_quality(
+            output_path,
+            repeat_fill_mode=repeat_fill_mode,
+        )
         fwc = fill_report.field_write_counts
         tm_count = fwc.get("teaching_method", 0)
         self._send(*_json_bytes({
@@ -658,6 +663,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "download_url": f"/download/{quote(output_name)}",
             "output_name": output_name,
             "template_analysis": template_analysis,
+            "output_quality_report": output_quality_report,
             "teaching_method_writes": tm_count,
             "teaching_method_status": "已填写" if tm_count >= 2 else ("部分填写" if tm_count > 0 else "未填写"),
         }))
@@ -1191,6 +1197,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "download_url": export_result.get("download_url"),
             "preview_url": export_result.get("preview_url"),
             "fill_report": export_result.get("fill_report"),
+            "output_quality_report": export_result.get("output_quality_report"),
             "teacher_diagnostic_report": teacher_diagnostic_report,
             "teacher_report": result.state.teacher_report,
             "workflow_trace": result.state.trace,
@@ -1210,6 +1217,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 "table_mappings": template_analysis.get("table_mappings", {}),
                 "field_write_counts": (export_result.get("fill_report") or {}).get("field_write_counts", {}),
                 "template_errors": template_analysis.get("errors", []),
+                "output_quality_report": export_result.get("output_quality_report"),
             },
         }
         if result.failed:
@@ -1398,6 +1406,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "download_url": export_result["download_url"],
             "preview_url": export_result["preview_url"],
             "fill_report": export_result.get("fill_report"),
+            "output_quality_report": export_result.get("output_quality_report"),
             "evaluation_report": evaluation.to_dict(),
             "workflow_trace": export_result["workflow_trace"],
             "history_item": history_item,

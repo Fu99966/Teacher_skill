@@ -77,6 +77,8 @@ LESSON_SECTION_MARKERS = {
     "reflection",
 }
 
+COMPACT_TEACHING_METHOD = "项目教学法、任务驱动法、演示教学法、小组协作、巡回指导、作品展示评价。"
+
 
 def _section_key_from_target(target: dict[str, Any]) -> str | None:
     if target.get("location") != "body_table":
@@ -274,6 +276,33 @@ def _fill_one_table_target(document, field_name, value, target, report) -> bool:
     return True
 
 
+def _is_narrow_teaching_method_target(
+    target: dict[str, Any],
+    mappings: dict[str, list[dict[str, Any]]],
+) -> bool:
+    if target.get("target_type") != "next_row_cell":
+        return False
+    method_span = int(target.get("grid_span") or 1)
+    for process_target in mappings.get("teaching_process", []):
+        same_region = (
+            process_target.get("location") == target.get("location")
+            and process_target.get("section") == target.get("section")
+            and process_target.get("table") == target.get("table")
+            and process_target.get("label_row") == target.get("label_row")
+            and process_target.get("row") == target.get("row")
+        )
+        if not same_region:
+            continue
+        process_span = int(process_target.get("grid_span") or 1)
+        if method_span * 2 <= process_span:
+            return True
+        # Some school templates store equal grid spans/tcW values even though the
+        # right-hand teaching-method column is visually constrained. A parallel
+        # next-row target to the right of teaching_process should stay concise.
+        return int(target.get("grid_col") or 0) > int(process_target.get("grid_col") or 0)
+    return False
+
+
 def _build_field_reports(analysis: dict[str, Any], report: FillReport) -> None:
     mappings = analysis.get("table_mappings", {})
     required_fields = set(analysis.get("required_fields", []))
@@ -301,7 +330,14 @@ def _fill_table_mappings(document, data, mappings, report):
         if _is_effectively_empty(data[field_name]): _add_ordered(report.empty_fields, field_name); _add_ordered(report.skipped_empty_fields, field_name); continue
         wrote_any = False
         for target in targets:
-            if _fill_one_table_target(document, field_name, data[field_name], target, report):
+            value = data[field_name]
+            if (
+                field_name == "teaching_method"
+                and len(_docx_text(value).strip()) > 80
+                and _is_narrow_teaching_method_target(target, mappings)
+            ):
+                value = COMPACT_TEACHING_METHOD
+            if _fill_one_table_target(document, field_name, value, target, report):
                 wrote_any = True
         if wrote_any: _add_ordered(report.filled_fields, field_name); _add_ordered(report.table_fields_filled, field_name)
 

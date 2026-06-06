@@ -24,6 +24,7 @@ from .lesson_generator import (
     normalize_lesson_field_aliases,
     sanitize_lesson_title,
 )
+from .output_quality import inspect_docx_delivery_quality
 from .preview_renderer import render_docx_pdf_preview
 from .rag_context import build_knowledge_context
 from .teacher_agents import review_lesson_quality, revise_lesson_after_review
@@ -171,6 +172,7 @@ def _enhance_system_template_docx(output_path: Path, fields: dict, template_path
             continue
 
         source_text = clean_cn_punctuation(str(fields.get("teaching_process") or text))
+        source_text = re.sub(r"本项目共\s*(\d+)\s*课时", r"本项目共 \1 课时", source_text)
         if "二、课时分配表" not in source_text:
             source_text = text
         pre_lines, post_lines = _split_hour_allocation_sections(source_text)
@@ -392,6 +394,10 @@ class TeacherWorkflow:
         actual_repeat_mode = repeat_fill_mode or ("all" if _is_system_template_path(template_path) else "first_only")
         fill_report = fill_docx_template(template_path, fields, output_path, repeat_fill_mode=actual_repeat_mode)
         _enhance_system_template_docx(output_path, fields, template_path)
+        output_quality_report = inspect_docx_delivery_quality(
+            output_path,
+            repeat_fill_mode=actual_repeat_mode,
+        )
         template_analysis = analyze_template(template_path)
         teacher_diagnostic_report = build_teacher_diagnostic_report(
             template_analysis=template_analysis,
@@ -409,6 +415,7 @@ class TeacherWorkflow:
             "preview_url": preview_url,
             "template_analysis": template_analysis,
             "fill_report": fill_report.to_dict(),
+            "output_quality_report": output_quality_report,
             "teacher_diagnostic_report": teacher_diagnostic_report,
             "workflow_trace": [event.to_dict() for event in self.trace],
         }
