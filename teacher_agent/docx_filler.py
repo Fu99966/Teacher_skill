@@ -27,7 +27,7 @@ class FillReport:
     field_write_counts: dict[str, int] = field(default_factory=dict)
     section_write_counts: dict[str, int] = field(default_factory=dict)
     repeated_sections_detected: int = 0
-    repeat_fill_mode: str = "all"
+    repeat_fill_mode: str = "first_only"
     filled_sections: int = 0
     field_reports: dict[str, dict[str, Any]] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
@@ -313,7 +313,7 @@ def _remaining_placeholders(document):
     return fields
 
 
-def fill_docx_template(template_path, data, output_path, repeat_fill_mode: str | None = "all"):
+def fill_docx_template(template_path, data, output_path, repeat_fill_mode: str | None = None):
     template_path = Path(template_path); output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

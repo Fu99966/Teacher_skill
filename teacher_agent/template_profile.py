@@ -61,7 +61,7 @@ class TemplateProfileStore:
         """Merge known-good mappings into fresh analysis without hiding current errors."""
         result = dict(template_analysis)
         profile_mappings = profile.get("table_mappings") or {}
-        if profile.get("profile_hit") and profile_mappings:
+        if profile.get("profile_hit") and (profile_mappings or profile.get("mapped_fields")):
             merged = dict(result.get("table_mappings") or {})
             for field, targets in profile_mappings.items():
                 if field not in merged or not merged[field]:

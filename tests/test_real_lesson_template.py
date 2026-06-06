@@ -226,7 +226,7 @@ def test_duplicate_tables_get_filled(tmp_path):
         "class_hour": "2课时",
     }
 
-    report = fill_docx_template(REAL_TEMPLATE, fields, output_path)
+    report = fill_docx_template(REAL_TEMPLATE, fields, output_path, repeat_fill_mode="all")
     output_text = _extract_all_text(output_path)
 
     count = output_text.count("传感器基础")
@@ -280,7 +280,7 @@ def test_field_write_counts(tmp_path):
         "class_type": "新授课",
     }
 
-    report = fill_docx_template(REAL_TEMPLATE, fields, output_path)
+    report = fill_docx_template(REAL_TEMPLATE, fields, output_path, repeat_fill_mode="all")
     assert not report.errors, f"Errors: {report.errors}"
 
     fwc = report.field_write_counts or {}

@@ -13,7 +13,7 @@ def diagnose_failure(state: AgentRunState) -> dict[str, Any]:
     evaluation = state.evaluation_report or {}
 
     if not fields:
-        issues.append("未生成任何教案字段。")
+        issues.append("fields 为空：未生成任何教案字段。")
         suggestions.append("使用本地 fallback 重新补齐字段。")
     else:
         empty = [key for key, value in fields.items() if not str(value or "").strip()]
@@ -23,7 +23,7 @@ def diagnose_failure(state: AgentRunState) -> dict[str, Any]:
 
     if fill_report:
         if int(fill_report.get("filled_non_empty_count") or 0) == 0:
-            issues.append("Word 未写入任何非空字段，存在空白模板风险。")
+            issues.append("filled_non_empty_count=0：Word 未写入任何非空字段，存在空白模板风险。")
             suggestions.append("阻断成功状态，重新填充或提示模板字段问题。")
         if fill_report.get("remaining_placeholders"):
             issues.append("Word 中仍有占位符残留。")

@@ -159,6 +159,9 @@ def _infer_single_prompt_defaults(text: str, defaults: dict[str, str]) -> dict[s
     """Fill the three teacher-facing essentials from a natural-language prompt."""
     merged = dict(defaults)
     normalized = re.sub(r"\s+", " ", (text or "").strip())
+    explicit_class_name = extract_class_name_from_request(normalized)
+    if explicit_class_name:
+        merged["grade"] = explicit_class_name
 
     if not merged.get("title"):
         title = extract_lesson_title_from_request(normalized)
@@ -611,6 +614,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         from .docx_filler import fill_docx_template
         form = self._read_multipart_form()
         template_path = self._save_template(form)
+        repeat_fill_mode = _normalize_repeat_fill_mode(
+            _form_value(form, "repeat_fill_mode", ""),
+            "upload",
+        )
         fields_json = _form_value(form, "fields_json", "{}")
         fields = _json.loads(fields_json)
         if not isinstance(fields, dict) or not fields:
@@ -638,7 +645,12 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
         output_path = OUTPUT_DIR / output_name
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        fill_report = fill_docx_template(template_path, fields, output_path)
+        fill_report = fill_docx_template(
+            template_path,
+            fields,
+            output_path,
+            repeat_fill_mode=repeat_fill_mode,
+        )
         fwc = fill_report.field_write_counts
         tm_count = fwc.get("teaching_method", 0)
         self._send(*_json_bytes({
@@ -857,7 +869,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         grade = _form_value(form, "grade", "")
         title = _form_value(form, "title", "")
         class_hour = _form_value(form, "class_hour", "1课时")
-        material = _form_value(form, "material", "")
+        material, material_extraction = _material_from_form(
+            form,
+            _form_value(form, "material", ""),
+        )
         class_type = _form_value(form, "class_type", DEFAULT_CLASS_TYPE)
         teaching_style = _form_value(form, "teaching_style", DEFAULT_TEACHING_STYLE)
         student_level = _form_value(form, "student_level", DEFAULT_STUDENT_LEVEL)

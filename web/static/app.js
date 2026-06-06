@@ -21,6 +21,10 @@ const rememberEditButton = document.querySelector("#remember-edit-button");
 const regenerateButton = document.querySelector("#regenerate-button");
 const deliveryCard = document.querySelector("#delivery-card");
 const deliveryChecklist = document.querySelector("#delivery-checklist");
+const templateWriteHealth = document.querySelector("#template-write-health");
+const templateWriteHealthList = document.querySelector("#template-write-health-list");
+const templateRepeatSummary = document.querySelector("#template-repeat-summary");
+const templateWriteWarning = document.querySelector("#template-write-warning");
 const qualityJudgment = document.querySelector("#quality-judgment");
 const qualityScore = document.querySelector("#quality-score");
 const qualityRisk = document.querySelector("#quality-risk");
@@ -707,6 +711,41 @@ function renderDelivery(data = {}) {
     item.classList.toggle("missing", !done);
     deliveryChecklist.append(item);
   });
+  renderTemplateWriteHealth(data.fill_report || currentFillReport);
+}
+
+function renderTemplateWriteHealth(fillReport = null) {
+  if (!templateWriteHealth || !templateWriteHealthList || !fillReport) {
+    if (templateWriteHealth) templateWriteHealth.hidden = true;
+    return;
+  }
+
+  const fieldReports = fillReport.field_reports || {};
+  const healthFields = ["lesson_title", "teaching_process", "teaching_method", "homework", "reflection"];
+  templateWriteHealth.hidden = false;
+  templateWriteHealthList.innerHTML = "";
+
+  healthFields.forEach((key) => {
+    const report = fieldReports[key] || {};
+    const writtenCount = Number(report.written_count || 0);
+    const item = document.createElement("li");
+    item.classList.toggle("missing", writtenCount === 0);
+    item.textContent = `${writtenCount > 0 ? "✅" : "⚠️"} ${fieldLabels[key]}：${writtenCount > 0 ? "已写入" : "未写入"}`;
+    templateWriteHealthList.append(item);
+  });
+
+  const teachingMethodWrites = Number(fieldReports.teaching_method?.written_count || 0);
+  templateWriteWarning.hidden = teachingMethodWrites > 0;
+
+  const repeatedSections = Number(fillReport.repeated_sections_detected || 0);
+  if (repeatedSections > 1) {
+    const modeText = fillReport.repeat_fill_mode === "all" ? "填充全部" : "只填第一套";
+    templateRepeatSummary.textContent = `检测到 ${repeatedSections} 套重复教案表格，当前策略：${modeText}`;
+    templateRepeatSummary.hidden = false;
+  } else {
+    templateRepeatSummary.textContent = "";
+    templateRepeatSummary.hidden = true;
+  }
 }
 
 async function loadAiStatus(probe = false) {

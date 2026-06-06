@@ -604,6 +604,41 @@ textarea:focus {
   color: var(--error);
 }
 
+.template-write-health {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fdfbf6;
+}
+
+.template-write-health h3 {
+  margin-top: 0;
+}
+
+.template-write-health ul {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.template-write-health li {
+  color: #55683c;
+  font-weight: 800;
+}
+
+.template-write-health li.missing,
+.template-write-warning {
+  color: var(--error);
+}
+
+.template-write-warning {
+  margin: 12px 0 0;
+  font-weight: 850;
+}
+
 .footer-tools {
   display: grid;
   grid-template-columns: 1fr;
