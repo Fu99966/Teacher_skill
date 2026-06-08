@@ -3,128 +3,171 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Teacher Skill 教案助手：一句话生成教案，支持学校 Word 模板填写、在线编辑与导出。"
+    />
     <title>Teacher Skill 教案助手</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260606-v26-output-quality" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/app.css?v=20260608-editorial-studio" />
   </head>
   <body>
+    <img class="paper-mark paper-mark-coral" src="/static/paper-coral.png" alt="" aria-hidden="true" />
+    <img class="paper-mark paper-mark-sage" src="/static/paper-sage.png" alt="" aria-hidden="true" />
+
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <div>
-            <p class="eyebrow">Teacher Skill</p>
-            <h1>教案助手</h1>
+        <a class="brand" href="/" aria-label="Teacher Skill 教案助手首页">
+          <span class="brand-mark" aria-hidden="true">TS</span>
+          <span class="brand-copy">
+            <strong>Teacher Skill</strong>
+            <span>教案助手</span>
+          </span>
+        </a>
+
+        <div class="topbar-actions">
+          <div class="ai-status" id="ai-status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span>AI 服务</span>
+            <strong id="ai-status-text">检查中</strong>
+            <button type="button" id="check-ai-button">诊断</button>
           </div>
-        </div>
-        <div class="ai-status" id="ai-status" aria-live="polite">
-          <span class="status-dot" aria-hidden="true"></span>
-          <span>AI 状态</span>
-          <strong id="ai-status-text">检查中</strong>
-          <button type="button" id="check-ai-button">诊断</button>
+          <a class="history-jump" href="#recent-panel">最近导出</a>
         </div>
       </header>
 
+      <ol class="step-bar" aria-label="生成步骤">
+        <li class="active" data-step="input"><em>01</em><span>输入需求</span></li>
+        <li data-step="generate"><em>02</em><span>生成内容</span></li>
+        <li data-step="preview"><em>03</em><span>预览编辑</span></li>
+        <li data-step="export"><em>04</em><span>导出 Word</span></li>
+      </ol>
+
       <main>
-        <section class="main-card" aria-labelledby="main-title">
-          <p class="eyebrow">一句话生成教案</p>
-          <h2 id="main-title">直接说你想要的教案</h2>
-          <p class="intro-copy">输入一句备课需求，系统会生成可编辑教案；需要学校格式时，再勾选上传 Word 模板。</p>
+        <div class="composer-layout">
+          <section class="main-card" aria-labelledby="main-title">
+            <p class="eyebrow">Lesson Composer</p>
+            <h1 id="main-title">一句话，<br class="mobile-title-break" />开始今天的备课。</h1>
+            <p class="intro-copy">描述班级、课题与课时，剩下的交给教案助手。</p>
 
-          <ol class="step-bar" aria-label="生成步骤">
-            <li class="active" data-step="input">输入需求</li>
-            <li data-step="generate">生成内容</li>
-            <li data-step="preview">预览编辑</li>
-            <li data-step="export">导出 Word</li>
-          </ol>
+            <form id="lesson-form" class="prompt-form">
+              <label class="field wide prompt-field">
+                <span>一句话需求</span>
+                <span class="prompt-input">
+                  <textarea
+                    id="agent-request"
+                    name="agent_request"
+                    rows="6"
+                    required
+                    placeholder="帮我生成一份24级物联网班《STM32智能小车》的32课时项目教案"
+                  ></textarea>
+                  <small>说明班级、课题、课型和课时，生成结果会更准确。</small>
+                </span>
+              </label>
 
-          <form id="lesson-form" class="prompt-form">
-            <label class="field wide">
-              <span>一句话需求</span>
-              <textarea
-                id="agent-request"
-                name="agent_request"
-                rows="6"
-                required
-                placeholder="帮我生成一份 24物联网1班《PCB板设计》的实训课教案，适合项目式教学。"
-              ></textarea>
-            </label>
-
-            <div class="example-row" aria-label="示例需求">
-              <button type="button" class="example-chip" data-example="training">实训课示例</button>
-              <button type="button" class="example-chip" data-example="open">公开课示例</button>
-              <button type="button" class="example-chip" data-example="regular">常规课示例</button>
-            </div>
-
-            <div class="supplement-fields" id="supplement-fields" hidden>
-              <p>还差一点信息，请补齐后再生成。</p>
-              <div class="field-grid">
-                <label class="field">
-                  <span>学科</span>
-                  <input name="subject" autocomplete="off" placeholder="如：物联网" />
-                </label>
-                <label class="field">
-                  <span>班级/年级</span>
-                  <input name="grade" autocomplete="off" placeholder="如：24物联网1班" />
-                </label>
-                <label class="field">
-                  <span>课题</span>
-                  <input name="title" autocomplete="off" placeholder="如：PCB板设计" />
-                </label>
+              <div class="example-row" aria-label="示例需求">
+                <button type="button" class="example-chip" data-example="training">实训课示例</button>
+                <button type="button" class="example-chip" data-example="open">公开课示例</button>
+                <button type="button" class="example-chip" data-example="regular">常规课示例</button>
               </div>
-            </div>
 
-            <label class="template-toggle">
-              <input id="use-school-template" name="use_school_template" type="checkbox" />
-              <span>使用学校 Word 模板</span>
-            </label>
+              <div class="supplement-fields" id="supplement-fields" hidden>
+                <p>还差一点信息，请补齐后再生成。</p>
+                <div class="field-grid">
+                  <label class="field">
+                    <span>学科</span>
+                    <input name="subject" autocomplete="off" placeholder="如：物联网" />
+                  </label>
+                  <label class="field">
+                    <span>班级/年级</span>
+                    <input name="grade" autocomplete="off" placeholder="如：24级物联网班" />
+                  </label>
+                  <label class="field">
+                    <span>课题</span>
+                    <input name="title" autocomplete="off" placeholder="如：PCB板设计" />
+                  </label>
+                </div>
+              </div>
 
-            <label class="field wide template-upload" id="template-upload-wrap" hidden>
-              <span>上传 .docx 模板</span>
-              <input id="template-input" name="template" type="file" accept=".docx" />
-              <small>勾选后必须上传模板；系统会按模板字段写入内容，并尽量保持原格式。</small>
-            </label>
+              <label class="template-toggle">
+                <input id="use-school-template" name="use_school_template" type="checkbox" />
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-copy">
+                  <strong>使用学校 Word 模板</strong>
+                  <small>关闭时使用系统标准教案模板</small>
+                </span>
+                <span class="optional-tag">可选</span>
+              </label>
 
-            <details class="template-advanced" id="repeat-mode-wrap" hidden>
-              <summary>高级设置</summary>
-              <fieldset>
-                <legend>重复模板处理</legend>
-                <label>
-                  <input type="radio" name="repeat_fill_mode" value="first_only" checked />
-                  只填第一套
-                </label>
-                <label>
-                  <input type="radio" name="repeat_fill_mode" value="all" />
-                  填充全部重复表格
-                </label>
-              </fieldset>
+              <label class="field wide template-upload" id="template-upload-wrap" hidden>
+                <span>上传 .docx 模板</span>
+                <input id="template-input" name="template" type="file" accept=".docx" />
+                <small>系统会按模板字段写入内容，并尽量保持学校原格式。</small>
+              </label>
+
+              <details class="template-advanced" id="repeat-mode-wrap" hidden>
+                <summary>模板高级设置</summary>
+                <fieldset>
+                  <legend>重复模板处理</legend>
+                  <label>
+                    <input type="radio" name="repeat_fill_mode" value="first_only" checked />
+                    只填第一套
+                  </label>
+                  <label>
+                    <input type="radio" name="repeat_fill_mode" value="all" />
+                    填充全部重复表格
+                  </label>
+                </fieldset>
+              </details>
+
+              <label class="field wide material-field">
+                <span>教材内容 / 补充资料 <i>可选</i></span>
+                <textarea
+                  id="material"
+                  name="material"
+                  rows="5"
+                  placeholder="粘贴教材章节、课程标准或知识点，让教案更贴合课堂。"
+                ></textarea>
+              </label>
+
+              <label class="field wide material-upload">
+                <span>上传教材资料 <i>可选</i></span>
+                <input id="material-file" name="material_file" type="file" accept=".txt,.md,.docx,.pdf" />
+                <small>支持 txt、md、docx；PDF 将先尝试提取文本。</small>
+              </label>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-button" id="generate-button">生成教案</button>
+              </div>
+            </form>
+          </section>
+
+          <aside class="studio-sidebar" aria-label="备课辅助信息">
+            <section class="studio-quote" aria-label="产品理念">
+              <span aria-hidden="true">“</span>
+              <p>把格式留给模板，<br />把教学判断留给老师。</p>
+              <img src="/static/paper-sage-stroke.png" alt="" aria-hidden="true" />
+            </section>
+
+            <section class="recent-panel" id="recent-panel">
+              <div class="mini-head">
+                <h2>最近导出</h2>
+                <button type="button" class="text-button" id="refresh-history-button">刷新</button>
+              </div>
+              <div class="history-list" id="history-list">暂无导出记录</div>
+            </section>
+
+            <details class="diagnostics-panel" id="diagnostics-panel">
+              <summary>高级诊断 <span aria-hidden="true">＋</span></summary>
+              <pre id="diagnostics-output">生成后会在这里显示模板字段、写入报告和自动检查摘要。</pre>
             </details>
-
-            <label class="field wide">
-              <span>教材内容 / 补充资料（可选）</span>
-              <textarea
-                id="material"
-                name="material"
-                rows="7"
-                placeholder="可以粘贴教材、课程标准、实训要求或学校补充说明；不填写也能生成通用版。"
-              ></textarea>
-            </label>
-
-            <label class="field wide material-upload">
-              <span>上传教材资料（可选）</span>
-              <input id="material-file" name="material_file" type="file" accept=".txt,.md,.docx,.pdf" />
-              <small>支持 txt、md、docx；PDF 先做文本尝试，扫描版 OCR 后续支持。</small>
-            </label>
-
-            <div class="form-actions">
-              <button type="submit" class="primary-button" id="generate-button">生成教案</button>
-            </div>
-          </form>
-        </section>
+          </aside>
+        </div>
 
         <section class="preview-card" id="preview-card" hidden aria-labelledby="preview-title">
           <div class="section-head">
             <div>
-              <p class="eyebrow">预览编辑</p>
+              <p class="eyebrow">Preview & Edit</p>
               <h2 id="preview-title">确认字段内容</h2>
             </div>
             <div class="section-actions">
@@ -149,8 +192,8 @@
         </section>
 
         <section class="delivery-card" id="delivery-card" hidden aria-labelledby="delivery-title">
-          <p class="eyebrow">已完成</p>
-          <h2 id="delivery-title">✓ Word 已生成</h2>
+          <p class="eyebrow">Delivery Ready</p>
+          <h2 id="delivery-title">Word 已生成</h2>
 
           <div class="quality-panel" aria-label="教案质量判断">
             <div>
@@ -193,25 +236,10 @@
             <button type="button" class="secondary-button" id="restart-button">重新生成</button>
           </div>
         </section>
-
-        <section class="footer-tools" aria-label="辅助信息">
-          <section class="mini-panel">
-            <div class="mini-head">
-              <h3>最近导出</h3>
-              <button type="button" class="text-button" id="refresh-history-button">刷新</button>
-            </div>
-            <div class="history-list" id="history-list">暂无导出记录</div>
-          </section>
-
-          <details class="mini-panel diagnostics-panel" id="diagnostics-panel">
-            <summary>高级诊断</summary>
-            <pre id="diagnostics-output">生成后会在这里显示模板字段、写入报告和自动检查摘要。</pre>
-          </details>
-        </section>
       </main>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-    <script src="/static/app.js?v=20260606-v26-output-quality"></script>
+    <script src="/static/app.js?v=20260608-editorial-studio"></script>
   </body>
 </html>

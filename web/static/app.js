@@ -786,6 +786,13 @@ function renderWordQualityHealth(report = null) {
   });
 
   const issues = [...(report.errors || []), ...(report.warnings || [])];
+  const narrowMethodWarning = "教学方法栏内容过长，可能在窄栏中严重换行，请使用短版教学方法。";
+  if (
+    checks.teaching_method_fit_for_narrow_cell === false
+    && !issues.includes(narrowMethodWarning)
+  ) {
+    issues.push(narrowMethodWarning);
+  }
   if (report.passed === false) {
     issues.unshift("导出体检发现问题，建议下载前检查。");
   }
@@ -832,7 +839,12 @@ async function loadHistory() {
       const link = document.createElement("a");
       link.className = "history-item";
       link.href = normalizeDownloadUrl(item.download_url);
-      link.textContent = `${item.title || item.output_name || "教案"} · ${item.grade || ""}`;
+      const fileTag = document.createElement("span");
+      fileTag.className = "history-file-tag";
+      fileTag.textContent = "DOCX";
+      const label = document.createElement("span");
+      label.textContent = `${item.title || item.output_name || "教案"}${item.grade ? ` · ${item.grade}` : ""}`;
+      link.append(fileTag, label);
       historyList.append(link);
     });
   } catch {

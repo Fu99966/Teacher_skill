@@ -85,7 +85,7 @@ def test_css_contains_card_layout_step_bar_and_toast():
     assert ".preview-card" in css
     assert ".delivery-card" in css
     assert ".toast" in css
-    assert "width: min(780px" in css
+    assert "width: min(1180px" in css
 
 
 def _input_tag(html: str, name: str) -> str:

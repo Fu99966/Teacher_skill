@@ -78,6 +78,9 @@ LESSON_SECTION_MARKERS = {
 }
 
 COMPACT_TEACHING_METHOD = "项目教学法、任务驱动法、演示教学法、小组协作、巡回指导、作品展示评价。"
+NARROW_METHOD_VERBOSE_PHRASES = (
+    "学生在真实智能小车项目实践中完成设计、检查、修改和展示",
+)
 
 
 def _section_key_from_target(target: dict[str, Any]) -> str | None:
@@ -303,6 +306,11 @@ def _is_narrow_teaching_method_target(
     return False
 
 
+def _should_compact_teaching_method(value: Any) -> bool:
+    text = _docx_text(value).strip()
+    return len(text) > 80 or any(phrase in text for phrase in NARROW_METHOD_VERBOSE_PHRASES)
+
+
 def _build_field_reports(analysis: dict[str, Any], report: FillReport) -> None:
     mappings = analysis.get("table_mappings", {})
     required_fields = set(analysis.get("required_fields", []))
@@ -333,8 +341,8 @@ def _fill_table_mappings(document, data, mappings, report):
             value = data[field_name]
             if (
                 field_name == "teaching_method"
-                and len(_docx_text(value).strip()) > 80
                 and _is_narrow_teaching_method_target(target, mappings)
+                and _should_compact_teaching_method(value)
             ):
                 value = COMPACT_TEACHING_METHOD
             if _fill_one_table_target(document, field_name, value, target, report):

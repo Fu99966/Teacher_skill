@@ -88,3 +88,18 @@ def test_teacher_visual_contract_uses_warm_card_style():
     assert ".preview-card" in css
     assert ".delivery-card" in css
     assert ".toast" in css
+
+
+def test_teacher_visual_contract_uses_editorial_studio_layout():
+    html = _read_web_file("index.html")
+    css = _read_web_file("static/app.css")
+
+    assert "一句话，" in html
+    assert "开始今天的备课。" in html
+    assert "把格式留给模板" in html
+    assert "studio-sidebar" in html
+    assert "paper-coral.png" in html
+    assert "paper-sage.png" in html
+    assert "width: min(1180px" in css
+    assert "grid-template-columns: minmax(0, 720px) minmax(300px, 1fr)" in css
+    assert "--serif:" in css

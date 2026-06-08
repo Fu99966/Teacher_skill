@@ -17,6 +17,10 @@ BAD_PUNCTUATION_PATTERNS = (
     "“ PCB",
     "设计 展开。 ”",
 )
+NARROW_METHOD_FORBIDDEN_PHRASES = (
+    "学生在真实智能小车项目实践中完成设计、检查、修改和展示",
+)
+NARROW_METHOD_WARNING = "教学方法栏内容过长，可能在窄栏中严重换行，请使用短版教学方法。"
 
 
 def _normalize_label(text: str) -> str:
@@ -95,6 +99,15 @@ def _parallel_process_method_cells(document: Document) -> list[dict[str, Any]]:
     return sections
 
 
+def _method_fits_narrow_cell(text: str) -> bool:
+    method_text = str(text or "").strip()
+    return bool(
+        method_text
+        and len(method_text) <= 120
+        and not any(phrase in method_text for phrase in NARROW_METHOD_FORBIDDEN_PHRASES)
+    )
+
+
 def inspect_docx_delivery_quality(
     docx_path: str | Path,
     *,
@@ -143,10 +156,14 @@ def inspect_docx_delivery_quality(
         populated_processes = [section["process_text"] for section in parallel_sections if section["process_text"]]
         checks["teaching_process_written"] = bool(populated_processes)
         checks["teaching_method_written"] = bool(populated_methods)
-        checks["teaching_method_fit_for_narrow_cell"] = all(
-            len(section["method_text"]) <= 120
-            for section in parallel_sections
-            if section["method_text"]
+        method_sections = (
+            parallel_sections[:1]
+            if repeat_fill_mode == "first_only"
+            else parallel_sections
+        )
+        checks["teaching_method_fit_for_narrow_cell"] = bool(method_sections) and all(
+            _method_fits_narrow_cell(section["method_text"])
+            for section in method_sections
         )
         if repeat_fill_mode == "first_only" and len(parallel_sections) > 1:
             checks["duplicate_first_only_preserved"] = bool(
@@ -183,6 +200,7 @@ def inspect_docx_delivery_quality(
         "has_reflection",
         "teaching_process_written",
         "teaching_method_written",
+        "teaching_method_fit_for_narrow_cell",
         "duplicate_first_only_preserved",
     )
     messages = {
@@ -199,14 +217,12 @@ def inspect_docx_delivery_quality(
         "has_reflection": "未识别到课后小记或教学反思栏目。",
         "teaching_process_written": "主要教学内容未写入非空内容。",
         "teaching_method_written": "教学方法的运用未写入非空内容。",
+        "teaching_method_fit_for_narrow_cell": NARROW_METHOD_WARNING,
         "duplicate_first_only_preserved": "first_only 模式下第二套重复教案区域仍被填充。",
     }
     for check_name in critical_checks:
         if not checks.get(check_name, False):
             errors.append(messages[check_name])
-
-    if not checks["teaching_method_fit_for_narrow_cell"]:
-        warnings.append("教学方法的运用内容超过 120 字，窄栏中可能出现严重拆行。")
 
     score = max(0, 100 - len(errors) * 12 - len(warnings) * 5)
     return {
