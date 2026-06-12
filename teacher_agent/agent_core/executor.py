@@ -136,12 +136,13 @@ class AgentExecutor:
         state.status = final_status
 
         # Auto-repair if failed — try to continue from export_docx
-        if failed and state.retry_count < state.max_retries:
+        if failed and _should_attempt_auto_repair(state):
             from .repair import repair_state
             state = repair_state(state)
             if state.status == "fields_generated":
                 export_idx = _find_node_index(graph, "export_docx")
                 if export_idx is not None:
+                    _reset_nodes_for_rerun(graph, export_idx)
                     result = self.run_from_node(graph, state, export_idx)
                     self._save_checkpoint(state)
                     return result
@@ -185,9 +186,17 @@ class AgentExecutor:
         final_status = "failed" if failed else "completed"
         state.status = final_status
 
-        if failed and state.retry_count < state.max_retries:
+        if failed and _should_attempt_auto_repair(state):
             from .repair import repair_state
             state = repair_state(state)
+            if state.status == "fields_generated":
+                export_idx = _find_node_index(graph, "export_docx")
+                if export_idx is not None:
+                    restart_idx = max(start_idx, export_idx)
+                    _reset_nodes_for_rerun(graph, restart_idx)
+                    result = self.run_from_node(graph, state, restart_idx)
+                    self._save_checkpoint(state)
+                    return result
 
         self._save_checkpoint(state)
         return AgentExecutionResult(
@@ -225,6 +234,23 @@ def _find_node_index(graph: list[GraphNode], node_id: str) -> int | None:
         if node.id == node_id:
             return i
     return None
+
+
+def _reset_nodes_for_rerun(graph: list[GraphNode], start_idx: int) -> None:
+    """Repair changes state; export/evaluation/report nodes must run again."""
+    for node in graph[start_idx:]:
+        if node.status != "blocked":
+            node.status = "pending"
+            node.detail = ""
+
+
+def _should_attempt_auto_repair(state: AgentRunState) -> bool:
+    if state.retry_count >= state.max_retries:
+        return False
+    recent_errors = "\n".join(state.errors[-4:])
+    if state.current_node == "export_docx" and "必填字段为空" in recent_errors:
+        return False
+    return True
 
 
 def _compact_detail(result: dict[str, Any]) -> str:
