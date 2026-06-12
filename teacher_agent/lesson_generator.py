@@ -253,6 +253,84 @@ def sanitize_material_hint(material: str, agent_request: str = "", title: str = 
     return cleaned
 
 
+_MATERIAL_FOCUS_STOPWORDS = {
+    "课程标准",
+    "教材内容",
+    "知识点",
+    "实训任务",
+    "学习任务",
+    "补充资料",
+    "材料",
+    "学生",
+    "教师",
+    "教案",
+    "课时",
+    "PPT",
+    "PDF",
+    "DOCX",
+}
+
+
+def _strip_material_focus_prefix(text: str) -> str:
+    cleaned = str(text or "").strip(" -—:：；;，,。.\u3000")
+    cleaned = re.sub(
+        r"^(?:课程标准|教材内容|知识点|实训任务|学习任务|补充资料|资料重点|系统检索到的教材重点片段)\s*[：:]?",
+        "",
+        cleaned,
+    ).strip()
+    cleaned = re.sub(
+        r"^(?:学生需要|需要|掌握|理解|了解|能够|能|使用|通过|并分析|分析|完成|围绕|结合)\s*",
+        "",
+        cleaned,
+    ).strip()
+    return cleaned.strip(" -—:：；;，,。.\u3000")
+
+
+def _append_material_focus_candidate(candidates: list[str], raw: str, title: str) -> None:
+    candidate = _strip_material_focus_prefix(raw)
+    if not candidate:
+        return
+    candidate = re.sub(r"\s+", " ", candidate)
+    if len(candidate) > 28:
+        candidate = candidate[:28].rstrip(" -—:：；;，,。.")
+    if len(candidate) < 2:
+        return
+    compact = _compact_text(candidate)
+    if compact in {_compact_text(item) for item in _MATERIAL_FOCUS_STOPWORDS}:
+        return
+    if _compact_text(title) and compact == _compact_text(title):
+        return
+    if is_generation_request_text(candidate):
+        return
+    candidate_key = compact.upper()
+    existing_keys = [_compact_text(item).upper() for item in candidates]
+    if candidate_key in existing_keys:
+        return
+    if any(candidate_key in existing or existing in candidate_key for existing in existing_keys):
+        return
+    candidates.append(candidate)
+
+
+def _extract_material_focus_terms(material: str, title: str, limit: int = 5) -> list[str]:
+    """Extract compact material focus terms for local fallback classroom design."""
+    cleaned = sanitize_material_hint(material, "", title)
+    if not cleaned:
+        return []
+
+    cleaned = re.sub(r"#+\s*(?:系统检索到的教材重点片段|上传教材资料|课型结构提示|优秀教案库提示)", "\n", cleaned)
+    candidates: list[str] = []
+    for fragment in re.split(r"[，,。；;：:\n\r\t、（）()【】\[\]<>|]", cleaned):
+        _append_material_focus_candidate(candidates, fragment, title)
+        if len(candidates) >= limit:
+            return candidates[:limit]
+
+    for token in re.findall(r"\b[A-Za-z][A-Za-z0-9+#./-]{1,}(?:\s*[0-9/]+)?\b", cleaned):
+        _append_material_focus_candidate(candidates, token, title)
+        if len(candidates) >= limit:
+            break
+    return candidates[:limit]
+
+
 def is_pcb_project_lesson(title: str, class_hour: str = "", class_type: str = "") -> bool:
     return "PCB" in normalize_topic_key(title) and infer_lesson_scope(class_hour, class_type) == "project_lesson"
 
@@ -611,7 +689,9 @@ def _local_fallback_fields(
     hour_count = parse_class_hour_count(class_hour)
     hour_text = class_hour.strip() or f"{hour_count}课时"
     title_text = sanitize_lesson_title(title, "", title)
-    material_hint = sanitize_material_hint(material, "", title_text)
+    raw_material_hint = sanitize_material_hint(material, "", title_text)
+    material_terms = _extract_material_focus_terms(raw_material_hint, title_text)
+    material_hint = raw_material_hint
     if len(material_hint) > 140:
         material_hint = material_hint[:140] + "..."
     topic_key = normalize_topic_key(title_text)
@@ -707,6 +787,18 @@ def _local_fallback_fields(
         teaching_method = "采用问题驱动、错题讲评、思维导图、分层训练和同伴互助相结合的方式。"
         homework = f"完成《{title_text}》错题订正、知识结构图和一组变式提升练习。"
         reflection = "课后关注学生知识结构是否形成、薄弱点是否暴露、分层任务是否有效。"
+
+    if material_terms:
+        term_text = "、".join(material_terms)
+        goals += f"\n4. 资料应用目标：能结合{term_text}完成课堂分析、实践记录或迁移应用。"
+        homework += f"\n资料关联任务：围绕{term_text}整理关键步骤、应用场景或问题反思。"
+        teaching_aids += f"；补充资料：{term_text}。"
+        if scope == "single_lesson":
+            single_process += f"\n资料聚焦：围绕{term_text}组织案例分析、任务练习和课堂评价。"
+        elif scope == "unit_lesson":
+            unit_process += f"\n资料聚焦：围绕{term_text}设计单元整合任务和迁移应用。"
+        else:
+            project_process += f"\n资料聚焦：围绕{term_text}设置阶段任务、成果检查和展示评价。"
 
     teaching_process = {
         "single_lesson": single_process,
