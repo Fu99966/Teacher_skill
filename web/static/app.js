@@ -39,6 +39,18 @@ const restartButton = document.querySelector("#restart-button");
 const aiStatus = document.querySelector("#ai-status");
 const aiStatusText = document.querySelector("#ai-status-text");
 const checkAiButton = document.querySelector("#check-ai-button");
+const apiConfigButton = document.querySelector("#api-config-button");
+const modelConfigDialog = document.querySelector("#model-config-dialog");
+const modelProvider = document.querySelector("#model-provider");
+const modelBaseUrl = document.querySelector("#model-base-url");
+const modelName = document.querySelector("#model-name");
+const modelApiKey = document.querySelector("#model-api-key");
+const toggleApiKeyButton = document.querySelector("#toggle-api-key-button");
+const maskedApiKey = document.querySelector("#masked-api-key");
+const modelConfigStatus = document.querySelector("#model-config-status");
+const testModelButton = document.querySelector("#test-model-button");
+const saveModelButton = document.querySelector("#save-model-button");
+const clearModelButton = document.querySelector("#clear-model-button");
 const historyList = document.querySelector("#history-list");
 const refreshHistoryButton = document.querySelector("#refresh-history-button");
 const diagnosticsOutput = document.querySelector("#diagnostics-output");
@@ -169,9 +181,11 @@ function setBusy(busy, label = "生成中") {
 function normalizeDownloadUrl(url) {
   if (!url || url === "#") return "#";
   try {
-    return new URL(url, window.location.origin).href;
+    const parsed = new URL(url, window.location.origin);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.origin !== window.location.origin) return "#";
+    return parsed.href;
   } catch {
-    return url;
+    return "#";
   }
 }
 
@@ -800,6 +814,102 @@ function renderWordQualityHealth(report = null) {
   wordQualityWarning.textContent = issues.join("；");
 }
 
+function modelConfigPayload() {
+  const payload = {
+    provider: modelProvider.value || "deepseek",
+    base_url: modelBaseUrl.value.trim(),
+    model: modelName.value.trim()
+  };
+  if (modelApiKey.value.trim()) payload.api_key = modelApiKey.value.trim();
+  return payload;
+}
+
+function renderModelConfig(config = {}) {
+  modelProvider.value = config.provider || "deepseek";
+  modelBaseUrl.value = config.base_url || "https://api.deepseek.com";
+  modelName.value = config.model || "deepseek-chat";
+  modelApiKey.value = "";
+  maskedApiKey.textContent = config.masked_api_key
+    ? `当前 Key：${config.masked_api_key}`
+    : "尚未配置";
+  modelConfigStatus.textContent = config.configured
+    ? "配置已生效，可测试连接。"
+    : "未配置 API Key，生成时会使用本地初稿。";
+}
+
+async function openModelConfig() {
+  modelConfigStatus.textContent = "正在读取配置...";
+  if (!modelConfigDialog.open) modelConfigDialog.showModal();
+  try {
+    const response = await apiFetch("/api/config/model");
+    const data = await readApiJson(response);
+    if (!response.ok) throw new Error(data.error || "读取 API 配置失败");
+    renderModelConfig(data);
+  } catch (error) {
+    modelConfigStatus.textContent = error.message || "读取 API 配置失败";
+  }
+}
+
+async function saveModelConfig() {
+  saveModelButton.disabled = true;
+  modelConfigStatus.textContent = "正在保存配置...";
+  try {
+    const response = await apiFetch("/api/config/model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(modelConfigPayload())
+    });
+    const data = await readApiJson(response);
+    if (!response.ok) throw new Error(data.error || "保存配置失败");
+    renderModelConfig(data);
+    await loadAiStatus(false);
+    showToast("API 配置已保存并立即生效。");
+  } catch (error) {
+    modelConfigStatus.textContent = error.message || "保存配置失败";
+  } finally {
+    saveModelButton.disabled = false;
+  }
+}
+
+async function testModelConnection() {
+  testModelButton.disabled = true;
+  modelConfigStatus.textContent = "正在测试连接...";
+  try {
+    const response = await apiFetch("/api/config/model/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(modelConfigPayload())
+    });
+    const data = await readApiJson(response);
+    if (!response.ok || !data.ok) throw new Error(data.error || data.message || "连接测试失败");
+    maskedApiKey.textContent = data.masked_api_key ? `当前 Key：${data.masked_api_key}` : maskedApiKey.textContent;
+    modelConfigStatus.textContent = data.message || "连接正常。";
+    showToast("AI 连接测试通过。");
+  } catch (error) {
+    modelConfigStatus.textContent = error.message || "连接测试失败";
+    showToast(modelConfigStatus.textContent, "error");
+  } finally {
+    testModelButton.disabled = false;
+  }
+}
+
+async function clearModelConfig() {
+  if (!window.confirm("确定清除本机 API 配置吗？")) return;
+  clearModelButton.disabled = true;
+  try {
+    const response = await apiFetch("/api/config/model", { method: "DELETE" });
+    const data = await readApiJson(response);
+    if (!response.ok) throw new Error(data.error || "清除配置失败");
+    renderModelConfig(data);
+    await loadAiStatus(false);
+    showToast("本机 API 配置已清除。");
+  } catch (error) {
+    modelConfigStatus.textContent = error.message || "清除配置失败";
+  } finally {
+    clearModelButton.disabled = false;
+  }
+}
+
 async function loadAiStatus(probe = false) {
   checkAiButton.disabled = true;
   aiStatusText.textContent = probe ? "诊断中" : "检查中";
@@ -836,8 +946,11 @@ async function loadHistory() {
       return;
     }
     items.slice(0, 5).forEach((item) => {
+      const row = document.createElement("article");
+      row.className = "history-item";
+
       const link = document.createElement("a");
-      link.className = "history-item";
+      link.className = "history-download";
       link.href = normalizeDownloadUrl(item.download_url);
       const fileTag = document.createElement("span");
       fileTag.className = "history-file-tag";
@@ -845,7 +958,33 @@ async function loadHistory() {
       const label = document.createElement("span");
       label.textContent = `${item.title || item.output_name || "教案"}${item.grade ? ` · ${item.grade}` : ""}`;
       link.append(fileTag, label);
-      historyList.append(link);
+
+      const actions = document.createElement("span");
+      actions.className = "history-actions";
+      const downloadAction = document.createElement("a");
+      downloadAction.href = link.href;
+      downloadAction.textContent = "下载";
+      const deleteAction = document.createElement("button");
+      deleteAction.type = "button";
+      deleteAction.textContent = "删除";
+      deleteAction.addEventListener("click", async () => {
+        if (!window.confirm("确定删除这份教案吗？删除后文件将无法下载。")) return;
+        deleteAction.disabled = true;
+        try {
+          const response = await apiFetch(`/api/history/${encodeURIComponent(item.id)}`, { method: "DELETE" });
+          const result = await readApiJson(response);
+          if (!response.ok || !result.ok) throw new Error(result.error || "删除导出文件失败");
+          if (downloadLink.href === link.href) setDownload(null);
+          showToast("已删除导出文件。");
+          await loadHistory();
+        } catch (error) {
+          deleteAction.disabled = false;
+          showToast(error.message || "删除导出文件失败", "error");
+        }
+      });
+      actions.append(downloadAction, deleteAction);
+      row.append(link, actions);
+      historyList.append(row);
     });
   } catch {
     historyList.textContent = "无法读取最近导出";
@@ -888,6 +1027,15 @@ downloadLink.addEventListener("click", (event) => {
   }
 });
 checkAiButton.addEventListener("click", () => loadAiStatus(true));
+apiConfigButton.addEventListener("click", openModelConfig);
+toggleApiKeyButton.addEventListener("click", () => {
+  const reveal = modelApiKey.type === "password";
+  modelApiKey.type = reveal ? "text" : "password";
+  toggleApiKeyButton.textContent = reveal ? "隐藏" : "显示";
+});
+saveModelButton.addEventListener("click", saveModelConfig);
+testModelButton.addEventListener("click", testModelConnection);
+clearModelButton.addEventListener("click", clearModelConfig);
 refreshHistoryButton.addEventListener("click", loadHistory);
 
 setStep("input");

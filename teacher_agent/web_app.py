@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from . import deepseek_client
 from .agent_observer import build_teacher_diagnostic_report
 from .agent_core.memory import AgentMemoryStore
 from .agent_core.executor import AgentExecutor
@@ -283,7 +284,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, HEAD, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Length", str(len(body)))
         if filename:
@@ -291,6 +292,15 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if include_body:
             self.wfile.write(body)
+
+    def _read_json_payload(self) -> dict[str, Any]:
+        content_length = int(self.headers.get("Content-Length", "0") or "0")
+        if content_length <= 0:
+            return {}
+        value = json.loads(self.rfile.read(content_length).decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("请求内容必须是 JSON 对象")
+        return value
 
     def _send_file(self, path: Path, as_attachment: bool = False) -> None:
         if not path.exists() or not path.is_file():
@@ -338,6 +348,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if path == "/api/history":
             history = HistoryStore(HISTORY_DB).list_documents()
             self._send(*_json_bytes({"items": history}))
+            return
+
+        if path == "/api/config/model":
+            self._send(*_json_bytes(deepseek_client.get_model_config_public()))
             return
 
         if path == "/api/llm-health":
@@ -428,8 +442,75 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self._send(HTTPStatus.NO_CONTENT, b"", "text/plain; charset=utf-8", include_body=False)
 
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        path = unquote(parsed.path)
+
+        if path == "/api/config/model":
+            try:
+                self._send(*_json_bytes(deepseek_client.clear_model_config()))
+            except OSError as exc:
+                self._send(*_json_bytes({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        match = re.fullmatch(r"/api/history/([A-Za-z0-9_-]+)", path)
+        if match:
+            history = HistoryStore(HISTORY_DB)
+            record = history.get_document(match.group(1))
+            if not record:
+                self._send(*_json_bytes({"ok": False, "error": "导出记录不存在"}, HTTPStatus.NOT_FOUND))
+                return
+
+            output_name = str(record.get("output_name") or "")
+            if not output_name or Path(output_name).name != output_name:
+                self._send(*_json_bytes({"ok": False, "error": "导出文件路径不安全"}, HTTPStatus.BAD_REQUEST))
+                return
+
+            output_root = OUTPUT_DIR.resolve()
+            output_path = (OUTPUT_DIR / output_name).resolve()
+            if output_path.parent != output_root:
+                self._send(*_json_bytes({"ok": False, "error": "导出文件路径不安全"}, HTTPStatus.BAD_REQUEST))
+                return
+
+            deleted_file = False
+            if output_path.exists():
+                if not output_path.is_file():
+                    self._send(*_json_bytes({"ok": False, "error": "导出目标不是文件"}, HTTPStatus.BAD_REQUEST))
+                    return
+                output_path.unlink()
+                deleted_file = True
+            deleted_history = history.delete_document(match.group(1))
+            self._send(*_json_bytes({
+                "ok": True,
+                "deleted_file": deleted_file,
+                "deleted_history": deleted_history,
+            }))
+            return
+
+        self._send(*_json_bytes({"ok": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND))
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/config/model":
+            try:
+                self._send(*_json_bytes(deepseek_client.save_model_config(self._read_json_payload())))
+            except (DeepSeekError, ValueError) as exc:
+                message = exc.user_message if isinstance(exc, DeepSeekError) else str(exc)
+                self._send(*_json_bytes({"ok": False, "error": message}, HTTPStatus.BAD_REQUEST))
+            except OSError as exc:
+                self._send(*_json_bytes({"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR))
+            return
+
+        if parsed.path == "/api/config/model/test":
+            try:
+                result = deepseek_client.test_model_config(self._read_json_payload())
+                result.pop("api_key", None)
+                self._send(*_json_bytes(result))
+            except (DeepSeekError, ValueError) as exc:
+                message = exc.user_message if isinstance(exc, DeepSeekError) else str(exc)
+                self._send(*_json_bytes({"ok": False, "error": message}, HTTPStatus.BAD_REQUEST))
+            return
+
         if parsed.path == "/api/draft":
             try:
                 self._handle_draft()

@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .env
+.teacher_skill_config.json
 .venv/
 venv/
 outputs/*.tmp

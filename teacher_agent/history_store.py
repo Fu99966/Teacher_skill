@@ -104,6 +104,24 @@ class HistoryStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_document(self, document_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, created_at, title, subject, grade, class_type, teaching_style,
+                       backend, template_mode, output_name, download_url, preview_url
+                FROM documents
+                WHERE id = ?
+                """,
+                (document_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_document(self, document_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+        return cursor.rowcount > 0
+
     def find_similar_documents(
         self,
         *,

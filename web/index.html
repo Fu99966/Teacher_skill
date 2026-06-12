@@ -32,6 +32,7 @@
             <strong id="ai-status-text">检查中</strong>
             <button type="button" id="check-ai-button">诊断</button>
           </div>
+          <button type="button" class="api-config-button" id="api-config-button">API 配置</button>
           <a class="history-jump" href="#recent-panel">最近导出</a>
         </div>
       </header>
@@ -238,6 +239,48 @@
         </section>
       </main>
     </div>
+
+    <dialog class="model-config-dialog" id="model-config-dialog" aria-labelledby="model-config-title">
+      <form method="dialog" class="model-config-card">
+        <div class="model-config-head">
+          <div>
+            <p class="eyebrow">AI Connection</p>
+            <h2 id="model-config-title">API 配置</h2>
+            <p>配置只保存在本机，不会显示完整 API Key。</p>
+          </div>
+          <button type="submit" class="dialog-close" aria-label="关闭">×</button>
+        </div>
+
+        <label class="field">
+          <span>Provider</span>
+          <select id="model-provider">
+            <option value="deepseek">DeepSeek</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Base URL</span>
+          <input id="model-base-url" type="url" value="https://api.deepseek.com" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Model</span>
+          <input id="model-name" type="text" value="deepseek-chat" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>API Key</span>
+          <span class="secret-input">
+            <input id="model-api-key" type="password" autocomplete="new-password" placeholder="输入新的 API Key" />
+            <button type="button" id="toggle-api-key-button">显示</button>
+          </span>
+          <small id="masked-api-key">尚未配置</small>
+        </label>
+        <p class="model-config-status" id="model-config-status" aria-live="polite"></p>
+        <div class="model-config-actions">
+          <button type="button" class="secondary-button" id="test-model-button">测试连接</button>
+          <button type="button" class="secondary-button danger-button" id="clear-model-button">清除配置</button>
+          <button type="button" class="primary-button" id="save-model-button">保存配置</button>
+        </div>
+      </form>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <script src="/static/app.js?v=20260608-editorial-studio"></script>

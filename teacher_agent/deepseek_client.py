@@ -8,11 +8,13 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-v4-pro"
+MODEL_CONFIG_PATH = PROJECT_ROOT / ".teacher_skill_config.json"
 
 
 @dataclass
@@ -68,25 +70,135 @@ def load_local_env(path: str | Path | None = None) -> None:
             os.environ[key] = value
 
 
+def load_saved_model_config(path: str | Path | None = None) -> dict[str, Any]:
+    config_path = Path(path) if path else MODEL_CONFIG_PATH
+    if not config_path.exists():
+        return {}
+    try:
+        value = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def mask_api_key(api_key: str) -> str:
+    value = str(api_key or "").strip()
+    if not value:
+        return ""
+    prefix = "sk-" if value.startswith("sk-") else ""
+    suffix = value[-4:] if len(value) >= 4 else value
+    return f"{prefix}****{suffix}"
+
+
+def _validate_model_config(config: dict[str, Any], *, require_key: bool = True) -> dict[str, Any]:
+    provider = str(config.get("provider") or "deepseek").strip().lower()
+    base_url = str(config.get("base_url") or DEFAULT_BASE_URL).strip().rstrip("/")
+    model = str(config.get("model") or DEFAULT_MODEL).strip()
+    api_key = str(config.get("api_key") or "").strip()
+    try:
+        timeout = float(config.get("timeout") or os.getenv("DEEPSEEK_TIMEOUT", "60"))
+    except (TypeError, ValueError) as exc:
+        raise DeepSeekError("请求超时时间必须是数字", error_type="invalid_config") from exc
+
+    parsed = urlparse(base_url)
+    if provider != "deepseek":
+        raise DeepSeekError("当前仅支持 DeepSeek 提供商", error_type="invalid_config")
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise DeepSeekError("Base URL 必须是有效的 http 或 https 地址", error_type="invalid_config")
+    if not model:
+        raise DeepSeekError("模型名称不能为空", error_type="invalid_config")
+    if require_key and not api_key:
+        raise DeepSeekError("请填写 DeepSeek API Key", error_type="not_configured")
+    if timeout <= 0:
+        raise DeepSeekError("请求超时时间必须大于 0", error_type="invalid_config")
+    return {
+        "provider": provider,
+        "base_url": base_url,
+        "model": model,
+        "api_key": api_key,
+        "timeout": timeout,
+    }
+
+
+def _effective_model_config(override: dict[str, Any] | None = None) -> dict[str, Any]:
+    load_local_env()
+    saved = load_saved_model_config()
+    incoming = override or {}
+    return _validate_model_config(
+        {
+            "provider": incoming.get("provider") or saved.get("provider") or "deepseek",
+            "base_url": incoming.get("base_url")
+            or saved.get("base_url")
+            or os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL),
+            "model": incoming.get("model")
+            or saved.get("model")
+            or os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL),
+            "api_key": incoming.get("api_key")
+            or saved.get("api_key")
+            or os.getenv("DEEPSEEK_API_KEY", ""),
+            "timeout": incoming.get("timeout")
+            or saved.get("timeout")
+            or os.getenv("DEEPSEEK_TIMEOUT", "60"),
+        },
+        require_key=False,
+    )
+
+
+def get_model_config_public() -> dict[str, Any]:
+    config = _effective_model_config()
+    api_key = str(config.get("api_key") or "")
+    return {
+        "configured": bool(api_key),
+        "provider": config["provider"],
+        "base_url": config["base_url"],
+        "model": config["model"],
+        "masked_api_key": mask_api_key(api_key),
+        "source": "local" if load_saved_model_config() else ("environment" if api_key else "default"),
+    }
+
+
+def save_model_config(config: dict[str, Any]) -> dict[str, Any]:
+    existing = load_saved_model_config()
+    merged = dict(existing)
+    merged.update({key: value for key, value in config.items() if value not in {None, ""}})
+    validated = _validate_model_config(merged, require_key=True)
+    MODEL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = MODEL_CONFIG_PATH.with_suffix(MODEL_CONFIG_PATH.suffix + ".tmp")
+    temporary_path.write_text(json.dumps(validated, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary_path.replace(MODEL_CONFIG_PATH)
+    return get_model_config_public()
+
+
+def clear_model_config() -> dict[str, Any]:
+    if MODEL_CONFIG_PATH.exists():
+        MODEL_CONFIG_PATH.unlink()
+    return get_model_config_public()
+
+
+def test_model_config(config: dict[str, Any]) -> dict[str, Any]:
+    effective = _effective_model_config(config)
+    _validate_model_config(effective, require_key=True)
+    status = check_deepseek_health(probe=True, config_override=effective)
+    result = status.to_dict()
+    result["provider"] = effective["provider"]
+    result["masked_api_key"] = mask_api_key(str(effective["api_key"]))
+    return result
+
+
 def is_deepseek_configured() -> bool:
-    load_local_env()
-    return bool(os.getenv("DEEPSEEK_API_KEY"))
+    return bool(_effective_model_config().get("api_key"))
 
 
-def _config() -> tuple[str, str, str, float]:
-    load_local_env()
-    api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+def _config(config_override: dict[str, Any] | None = None) -> tuple[str, str, str, float]:
+    config = _effective_model_config(config_override)
+    api_key = str(config.get("api_key") or "").strip()
     if not api_key:
         raise DeepSeekError(
             "DEEPSEEK_API_KEY is not configured",
             error_type="not_configured",
-            user_message="未配置 DEEPSEEK_API_KEY，请先在项目根目录创建 .env。",
+            user_message="未配置 DeepSeek API Key，请在网页 API 配置中填写，或继续使用本地初稿。",
         )
-
-    base_url = os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL).strip().rstrip("/")
-    model = os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    timeout = float(os.getenv("DEEPSEEK_TIMEOUT", "60"))
-    return api_key, base_url, model, timeout
+    return api_key, str(config["base_url"]), str(config["model"]), float(config["timeout"])
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -133,8 +245,15 @@ def _safe_http_message(raw: str) -> str:
     return str(data)[:500]
 
 
-def chat_json(prompt: str, *, system: str, temperature: float = 0.75, max_tokens: int = 6000) -> dict[str, Any]:
-    api_key, base_url, model, timeout = _config()
+def chat_json(
+    prompt: str,
+    *,
+    system: str,
+    temperature: float = 0.75,
+    max_tokens: int = 6000,
+    config_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    api_key, base_url, model, timeout = _config(config_override)
     payload = {
         "model": model,
         "messages": [
@@ -189,11 +308,14 @@ def chat_json(prompt: str, *, system: str, temperature: float = 0.75, max_tokens
     return _extract_json_object(str(content))
 
 
-def check_deepseek_health(probe: bool = False) -> DeepSeekStatus:
-    load_local_env()
-    base_url = os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL).strip().rstrip("/") or DEFAULT_BASE_URL
-    model = os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    configured = bool(os.getenv("DEEPSEEK_API_KEY"))
+def check_deepseek_health(
+    probe: bool = False,
+    config_override: dict[str, Any] | None = None,
+) -> DeepSeekStatus:
+    config = _effective_model_config(config_override)
+    base_url = str(config["base_url"])
+    model = str(config["model"])
+    configured = bool(config.get("api_key"))
     if not configured:
         return DeepSeekStatus(
             configured=False,
@@ -221,6 +343,7 @@ def check_deepseek_health(probe: bool = False) -> DeepSeekStatus:
             system="你是健康检查接口，只输出合法 JSON。",
             temperature=0,
             max_tokens=64,
+            config_override=config,
         )
         return DeepSeekStatus(
             configured=True,
