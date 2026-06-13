@@ -1,10 +1,100 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any
+
+
+_MEMORY_IDENTITY_FIELDS = {
+    "lesson_title",
+    "title",
+    "subject",
+    "grade",
+    "class_name",
+    "class_hour",
+    "class_type",
+    "teaching_date",
+}
+
+
+def _memory_key(value: Any) -> str:
+    return re.sub(r"[\s\u3000《》“”\"'，,。.:：;；、\-_/\\|()（）\[\]【】{}]+", "", str(value or "")).upper()
+
+
+def _non_empty_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return "\n".join(str(item).strip() for item in value if str(item).strip()).strip()
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False).strip() if value else ""
+    return str(value).strip()
+
+
+def build_teacher_memory_context(examples: list[dict[str, Any]], limit: int = 2) -> str:
+    """Build a prompt-only teacher preference context without polluting material/RAG."""
+    notes: list[str] = []
+    for item in examples[:limit]:
+        fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+        preferred = []
+        for key in ("teaching_goals", "teaching_process", "teaching_method", "homework", "reflection"):
+            value = _non_empty_text(fields.get(key))
+            if value:
+                preferred.append(f"{key}={value[:260]}")
+        if preferred:
+            notes.append(
+                f"老师历史修改样例（课题：{item.get('title', '')}；课型：{item.get('class_type', '')}）："
+                + "；".join(preferred)
+            )
+    return "\n".join(notes)
+
+
+def apply_exact_teacher_edit_memory(
+    generated_fields: dict[str, Any],
+    examples: list[dict[str, Any]],
+    *,
+    title: str,
+    class_hour: str,
+    grade: str,
+    class_type: str,
+    template_id: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Reuse exact-match teacher edits for local fallback without overwriting identity fields."""
+    result = dict(generated_fields or {})
+    title_key = _memory_key(title)
+    hour_key = _memory_key(class_hour)
+    grade_key = _memory_key(grade)
+    class_type_key = _memory_key(class_type)
+    template_key = str(template_id or "")
+    reused: list[str] = []
+
+    for item in examples:
+        if not item.get("exact_title_match") or _memory_key(item.get("title")) != title_key:
+            continue
+        if template_key and str(item.get("template_id") or "") != template_key:
+            continue
+        if grade_key and _memory_key(item.get("grade")) and _memory_key(item.get("grade")) != grade_key:
+            continue
+        if class_type_key and _memory_key(item.get("class_type")) and _memory_key(item.get("class_type")) != class_type_key:
+            continue
+        fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+        remembered_hour = _memory_key(fields.get("class_hour"))
+        if hour_key and remembered_hour and hour_key != remembered_hour:
+            continue
+        for field, value in fields.items():
+            if field in _MEMORY_IDENTITY_FIELDS:
+                continue
+            text = _non_empty_text(value)
+            if not text:
+                continue
+            result[field] = text
+            if field not in reused:
+                reused.append(field)
+        break
+    return result, reused
 
 
 class AgentMemoryStore:
@@ -118,32 +208,19 @@ class AgentMemoryStore:
         subject: str = "",
         grade: str = "",
         title: str = "",
+        class_type: str = "",
         template_id: str = "",
         limit: int = 3,
     ) -> list[dict[str, Any]]:
-        conditions = []
-        values: list[Any] = []
-        if template_id:
-            conditions.append("template_id = ?")
-            values.append(template_id)
-        if subject:
-            conditions.append("(subject LIKE ? OR title LIKE ?)")
-            values.extend([f"%{subject}%", f"%{title or subject}%"])
-        if grade:
-            conditions.append("(grade LIKE ? OR title LIKE ?)")
-            values.extend([f"%{grade}%", f"%{title or grade}%"])
-        where = "WHERE " + " OR ".join(conditions) if conditions else ""
-        values.append(limit)
         with self._connect() as connection:
             rows = connection.execute(
-                f"""
+                """
                 SELECT created_at, template_id, subject, grade, title, class_type, fields_json
                 FROM teacher_field_feedback
-                {where}
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
-                values,
+                (max(limit * 20, 40),),
             ).fetchall()
 
         examples: list[dict[str, Any]] = []
@@ -154,5 +231,36 @@ class AgentMemoryStore:
             except json.JSONDecodeError:
                 fields = {}
             item["fields"] = fields
+            score = 0
+            exact_title_match = bool(title and _memory_key(item.get("title")) == _memory_key(title))
+            if exact_title_match:
+                score += 12
+            if template_id and str(item.get("template_id") or "") == str(template_id):
+                score += 6
+            if subject and _memory_key(item.get("subject")) == _memory_key(subject):
+                score += 3
+            if grade and _memory_key(item.get("grade")) == _memory_key(grade):
+                score += 2
+            if class_type and _memory_key(item.get("class_type")) == _memory_key(class_type):
+                score += 2
+            if title and _memory_key(title) in _memory_key(item.get("title")):
+                score += 2
+            semantic_match = any(
+                (
+                    exact_title_match,
+                    bool(subject and _memory_key(item.get("subject")) == _memory_key(subject)),
+                    bool(grade and _memory_key(item.get("grade")) == _memory_key(grade)),
+                    bool(class_type and _memory_key(item.get("class_type")) == _memory_key(class_type)),
+                )
+            )
+            if any((subject, grade, title, class_type)) and not semantic_match:
+                continue
+            if not any((subject, grade, title, class_type, template_id)):
+                score = 1
+            if score <= 0:
+                continue
+            item["match_score"] = score
+            item["exact_title_match"] = exact_title_match
             examples.append(item)
-        return examples
+        examples.sort(key=lambda item: (int(item.get("match_score") or 0), str(item.get("created_at") or "")), reverse=True)
+        return examples[:limit]

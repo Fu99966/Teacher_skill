@@ -9,7 +9,7 @@ from ..template_parser import analyze_template
 from ..template_profile import TemplateProfileStore
 from ..workflow import TeacherWorkflow
 from .evaluator import evaluate_delivery, evaluate_pedagogy_quality
-from .memory import AgentMemoryStore
+from .memory import AgentMemoryStore, apply_exact_teacher_edit_memory, build_teacher_memory_context
 from .state import AgentArtifact, AgentRunState
 from .tool_spec import ToolRegistry, ToolSpec
 
@@ -64,7 +64,7 @@ def build_agent_tool_registry(
 
     def draft_fields_tool(context: dict[str, Any]) -> dict[str, Any]:
         state = _st(context)
-        from ..lesson_generator import draft_lesson_document_fields_with_source
+        from ..lesson_generator import draft_lesson_document_fields_with_source, normalize_lesson_field_aliases
 
         task = state.task
         analysis = state.template_analysis or {}
@@ -76,37 +76,51 @@ def build_agent_tool_registry(
                 subject=str(task.get("subject") or ""),
                 grade=str(task.get("grade") or ""),
                 title=str(task.get("title") or ""),
+                class_type=str(task.get("class_type") or ""),
                 template_id=str(state.template_id or ""),
                 limit=2,
             )
         except Exception:
             examples = []
-        if examples:
-            notes = []
-            for item in examples:
-                fields = item.get("fields") or {}
-                process = str(fields.get("teaching_process") or "")[:220]
-                method = str(fields.get("teaching_method") or "")[:160]
-                notes.append(f"老师历史修改样例：教学过程={process}；教学方法={method}")
-            material = "\n\n".join([material, "# 老师历史修改记忆", "\n".join(notes)]).strip()
+        teacher_memory_context = build_teacher_memory_context(examples)
 
         fields, backend = draft_lesson_document_fields_with_source(
-            str(task.get("subject") or ""),
-            str(task.get("grade") or ""),
-            str(task.get("title") or ""),
-            material,
-            str(task.get("class_hour") or "1课时"),
-            str(task.get("class_type") or "新授课"),
-            str(task.get("teaching_style") or "常规启发式"),
-            str(task.get("student_level") or "常规混合水平"),
-            str(task.get("generation_depth") or "标准"),
-            tmpl_fields,
-            bool(task.get("strict_ai", False)),
-            analysis.get("field_context"),
+            subject=str(task.get("subject") or ""),
+            grade=str(task.get("grade") or ""),
+            title=str(task.get("title") or ""),
+            material=material,
+            class_hour=str(task.get("class_hour") or "1课时"),
+            class_type=str(task.get("class_type") or "新授课"),
+            teaching_style=str(task.get("teaching_style") or "常规启发式"),
+            student_level=str(task.get("student_level") or "常规混合水平"),
+            generation_depth=str(task.get("generation_depth") or "标准"),
+            template_fields=tmpl_fields,
+            strict_ai=bool(task.get("strict_ai", False)),
+            template_context=analysis.get("field_context"),
+            few_shot_examples=teacher_memory_context,
         )
+        reused_fields: list[str] = []
+        if backend == "local_fallback" and examples:
+            fields, reused_fields = apply_exact_teacher_edit_memory(
+                fields,
+                examples,
+                title=str(task.get("title") or ""),
+                class_hour=str(task.get("class_hour") or ""),
+                grade=str(task.get("grade") or ""),
+                class_type=str(task.get("class_type") or ""),
+                template_id=str(state.template_id or ""),
+            )
+            fields = normalize_lesson_field_aliases(fields, str(task.get("raw_text") or ""))
+            if reused_fields:
+                state.warnings.append("已复用同课题、同课时模板中的老师历史修改。")
         state.fields = fields
         state.status = "fields_generated"
-        return {"generation_backend": backend, "field_count": len(fields), "memory_examples_used": len(examples)}
+        return {
+            "generation_backend": backend,
+            "field_count": len(fields),
+            "memory_examples_used": len(examples),
+            "memory_fields_reused": reused_fields,
+        }
 
     registry.register(
         "draft_fields",
