@@ -13,6 +13,7 @@ from docx.shared import Pt
 from docx.text.paragraph import Paragraph
 
 from .agent_observer import build_teacher_diagnostic_report
+from .artifact_naming import unique_artifact_name
 from .docx_filler import fill_docx_template
 from .few_shot_examples import select_few_shot_examples
 from .history_store import HistoryStore
@@ -220,13 +221,6 @@ def build_workflow_schema() -> dict:
     }
 
 
-def _safe_filename(value: str, fallback: str = "lesson") -> str:
-    import re
-
-    value = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", value).strip(" ._")
-    return value[:80] or fallback
-
-
 class TeacherWorkflow:
     def __init__(self, history_db: Path | None = None) -> None:
         self._started_at = time.perf_counter()
@@ -387,8 +381,7 @@ class TeacherWorkflow:
         fields = normalize_lesson_field_aliases(fields)
         grade = str(fields.get("grade") or "年级")
         subject = str(fields.get("subject") or "学科")
-        safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")
-        output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
+        output_name = unique_artifact_name(f"{grade}-{subject}-{title}-教案", ".docx")
         output_path = output_dir / output_name
 
         actual_repeat_mode = repeat_fill_mode or ("all" if _is_system_template_path(template_path) else "first_only")

@@ -4,7 +4,6 @@ import cgi
 import json
 import mimetypes
 import re
-import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,6 +17,7 @@ from .agent_core.evaluator import evaluate_lesson_output
 from .agent_core.planner import build_plan
 from .agent_core.task_router import route_task
 from .agent_core.tool_registry import build_lesson_tool_registry
+from .artifact_naming import unique_artifact_name, unique_upload_name
 from .deepseek_client import DeepSeekError
 from .history_store import HistoryStore
 from .lesson_generator import (
@@ -89,11 +89,6 @@ class RequestTooLargeError(ValueError):
 
 def _json_bytes(payload: dict, status: int = HTTPStatus.OK) -> tuple[int, bytes, str]:
     return status, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
-
-
-def _safe_filename(value: str, fallback: str = "lesson") -> str:
-    value = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", value).strip(" ._")
-    return value[:80] or fallback
 
 
 def _form_value(form: cgi.FieldStorage, name: str, default: str = "") -> str:
@@ -792,8 +787,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         grade = str(fields.get("grade") or fields.get("class_name") or "年级")
         subject = str(fields.get("subject") or "学科")
         title = str(fields.get("lesson_title") or "教案")
-        safe_title = _safe_filename(f"{grade}-{subject}-{title}-教案")
-        output_name = f"{safe_title}-{time.strftime('%Y%m%d-%H%M%S')}.docx"
+        output_name = unique_artifact_name(f"{grade}-{subject}-{title}-教案", ".docx")
         output_path = OUTPUT_DIR / output_name
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         fill_report = fill_docx_template(
@@ -1582,7 +1576,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             raise ValueError("请上传 .docx 模板")
 
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        upload_name = f"{time.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(original_name, 'template.docx')}"
+        upload_name = unique_upload_name(original_name)
         upload_path = UPLOAD_DIR / upload_name
         with upload_path.open("wb") as file:
             file.write(template_item.file.read())
