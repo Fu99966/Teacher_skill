@@ -1,5 +1,7 @@
 # Teacher Skill 教案助手
 
+[![Teacher Skill CI](https://github.com/2030731860-crypto/Teacher_skill/actions/workflows/test.yml/badge.svg)](https://github.com/2030731860-crypto/Teacher_skill/actions/workflows/test.yml)
+
 Teacher Skill 是一个面向教师备课的 Word 教案智能体。核心原则是：**Word 模板决定格式，AI 只生成内容**。
 
 ## 当前能力
@@ -128,6 +130,12 @@ node --check web/static/app.js
 python -m compileall teacher_agent
 pytest
 ```
+
+GitHub Actions 会在每次推送到 `main` 或创建 Pull Request 时自动执行：
+
+- Ubuntu：Python 3.10、3.11、3.12；
+- Windows：Python 3.11；
+- Python 编译、前端 JavaScript 语法检查、模板扫描 smoke test、完整 pytest。
 
 ## 格式保持边界
 

@@ -7,6 +7,8 @@ venv/
 outputs/*.tmp
 outputs/uploads/
 outputs/previews/
+outputs/agent_sessions/
+outputs/template_profiles/
 outputs/deepseek-test/
 outputs/v2-test/
 outputs/v4-test/
