@@ -79,6 +79,12 @@ AGENT_MEMORY_DB = OUTPUT_DIR / "teacher_skill_agent_memory.sqlite3"
 TEMPLATE_DIR = PROJECT_ROOT / "templates"
 SAMPLE_MATERIAL = PROJECT_ROOT / "examples" / "sample_material.md"
 SAMPLE_TEMPLATE = TEMPLATE_DIR / "sample_lesson_template.docx"
+MAX_JSON_REQUEST_BYTES = 5 * 1024 * 1024
+MAX_MULTIPART_REQUEST_BYTES = 50 * 1024 * 1024
+
+
+class RequestTooLargeError(ValueError):
+    pass
 
 
 def _json_bytes(payload: dict, status: int = HTTPStatus.OK) -> tuple[int, bytes, str]:
@@ -283,7 +289,10 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = str(self.headers.get("Origin") or "").strip()
+        if origin and self._is_allowed_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, HEAD, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Length", str(len(body)))
@@ -292,6 +301,43 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if include_body:
             self.wfile.write(body)
+
+    def _is_allowed_origin(self, origin: str) -> bool:
+        parsed_origin = urlparse(origin)
+        if parsed_origin.scheme not in {"http", "https"} or not parsed_origin.netloc:
+            return False
+        host_header = str(self.headers.get("Host") or "").strip()
+        if not host_header:
+            return False
+        if parsed_origin.netloc.lower() == host_header.lower():
+            return True
+
+        parsed_host = urlparse(f"//{host_header}")
+        loopback_hosts = {"localhost", "127.0.0.1", "::1"}
+        return (
+            (parsed_origin.hostname or "").lower() in loopback_hosts
+            and (parsed_host.hostname or "").lower() in loopback_hosts
+            and parsed_origin.port == parsed_host.port
+        )
+
+    def _validate_mutating_origin(self) -> None:
+        origin = str(self.headers.get("Origin") or "").strip()
+        if origin and not self._is_allowed_origin(origin):
+            raise PermissionError("只允许当前教案助手页面访问本地写入接口。")
+
+    def _validate_post_size(self) -> None:
+        raw_length = str(self.headers.get("Content-Length") or "0").strip()
+        try:
+            content_length = int(raw_length)
+        except ValueError as exc:
+            raise ValueError("Content-Length 无效") from exc
+        if content_length < 0:
+            raise ValueError("Content-Length 无效")
+        content_type = str(self.headers.get("Content-Type") or "").lower()
+        limit = MAX_MULTIPART_REQUEST_BYTES if "multipart/form-data" in content_type else MAX_JSON_REQUEST_BYTES
+        if content_length > limit:
+            size_mb = max(1, round(limit / (1024 * 1024)))
+            raise RequestTooLargeError(f"请求内容过大，请将文件或内容控制在 {size_mb} MB 以内。")
 
     def _read_json_payload(self) -> dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", "0") or "0")
@@ -440,9 +486,19 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         self._send(*_json_bytes({"ok": True}), include_body=False)
 
     def do_OPTIONS(self) -> None:
+        try:
+            self._validate_mutating_origin()
+        except PermissionError as exc:
+            self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.FORBIDDEN))
+            return
         self._send(HTTPStatus.NO_CONTENT, b"", "text/plain; charset=utf-8", include_body=False)
 
     def do_DELETE(self) -> None:
+        try:
+            self._validate_mutating_origin()
+        except PermissionError as exc:
+            self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.FORBIDDEN))
+            return
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
 
@@ -490,6 +546,19 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         self._send(*_json_bytes({"ok": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND))
 
     def do_POST(self) -> None:
+        try:
+            self._validate_mutating_origin()
+            self._validate_post_size()
+        except PermissionError as exc:
+            self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.FORBIDDEN))
+            return
+        except RequestTooLargeError as exc:
+            self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE))
+            return
+        except ValueError as exc:
+            self._send(*_json_bytes({"error": str(exc)}, HTTPStatus.BAD_REQUEST))
+            return
+
         parsed = urlparse(self.path)
         if parsed.path == "/api/config/model":
             try:

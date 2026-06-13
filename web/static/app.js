@@ -55,6 +55,7 @@ const historyList = document.querySelector("#history-list");
 const refreshHistoryButton = document.querySelector("#refresh-history-button");
 const diagnosticsOutput = document.querySelector("#diagnostics-output");
 const toast = document.querySelector("#toast");
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 const examplePrompts = {
   training: "帮我生成一份 24物联网1班《PCB板设计》的实训课教案，适合项目式教学，课时 2 课时。",
@@ -156,6 +157,26 @@ function setStatus(message, isError = false) {
   statusLine.textContent = message;
   statusLine.classList.toggle("error", isError);
   if (isError) showToast(message, "error");
+}
+
+function validateUploadSize() {
+  const uploads = [
+    { file: useSchoolTemplate.checked ? templateInput.files[0] : null, label: "学校 Word 模板" },
+    { file: materialFile.files[0], label: "教材资料" }
+  ].filter((item) => item.file);
+
+  const oversized = uploads.find((item) => item.file.size > MAX_UPLOAD_BYTES);
+  if (oversized) {
+    showToast(`${oversized.label}超过 50 MB，请压缩或选择更小的文件。`, "error");
+    return false;
+  }
+
+  const totalBytes = uploads.reduce((sum, item) => sum + item.file.size, 0);
+  if (totalBytes > MAX_UPLOAD_BYTES) {
+    showToast("本次上传文件总大小超过 50 MB，请减少文件后重试。", "error");
+    return false;
+  }
+  return true;
 }
 
 function stepOrder(step) {
@@ -474,6 +495,7 @@ async function submitLessonForm(event) {
     templateInput.focus();
     return;
   }
+  if (!validateUploadSize()) return;
 
   setStep("generate");
   previewCard.hidden = false;
