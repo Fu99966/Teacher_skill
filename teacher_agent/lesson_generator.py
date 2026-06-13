@@ -557,10 +557,22 @@ def _clean_text(value: Any) -> str:
     return text.replace("{{", "").replace("}}", "").strip()
 
 
+def _human_only_field_value(field: str) -> str:
+    normalized = re.sub(r"[\s\u3000_\-./:：;；，,。()（）\[\]【】]+", "", str(field or "")).lower()
+    if any(marker in normalized for marker in ("审批意见", "审批", "签字", "签名")):
+        return "待审批人填写。"
+    if any(marker in normalized for marker in ("教研组意见", "教研意见")):
+        return "待教研组填写。"
+    return ""
+
+
 def coerce_dynamic_fields(data: dict[str, Any] | dict, dynamic_fields: list[str] | None) -> dict[str, str]:
     fields = _normalize_dynamic_fields(dynamic_fields)
     source = data if isinstance(data, dict) else {}
-    return {field: _clean_text(source.get(field)) for field in fields}
+    result: dict[str, str] = {}
+    for field in fields:
+        result[field] = _human_only_field_value(field) or _clean_text(source.get(field))
+    return result
 
 
 def validate_non_empty_fields(fields: dict[str, Any], required_fields: list[str]) -> tuple[bool, list[str]]:
@@ -673,6 +685,150 @@ def _field_label_hint(field_name: str) -> str:
         "assessment": "评价方式",
     }
     return known.get(field_name, field_name.replace("_", " ").replace("-", " "))
+
+
+_DYNAMIC_FIELD_ALIASES = {
+    "课题": "lesson_title",
+    "课题名称": "lesson_title",
+    "题目": "lesson_title",
+    "学科": "subject",
+    "课程": "subject",
+    "年级": "grade",
+    "班级": "class_name",
+    "授课班级": "class_name",
+    "授课日期": "teaching_date",
+    "课时": "class_hour",
+    "课时数": "class_hour",
+    "授课类型": "class_type",
+    "课型": "class_type",
+    "教学目标": "teaching_goals",
+    "教学目的": "teaching_goals",
+    "学习目标": "teaching_goals",
+    "教学重点": "key_points",
+    "教学难点": "difficult_points",
+    "重点难点": "teaching_key_difficult",
+    "教学重难点": "teaching_key_difficult",
+    "教学准备": "teaching_preparation",
+    "教具准备": "teaching_aids",
+    "教具挂图": "teaching_aids",
+    "教学环境": "teaching_environment",
+    "教学环境要求": "teaching_environment",
+    "对教学环境的要求": "teaching_environment",
+    "学情分析": "student_analysis",
+    "教学过程": "teaching_process",
+    "主要教学内容": "teaching_process",
+    "教学内容": "teaching_process",
+    "教学方法": "teaching_method",
+    "教学方法的运用": "teaching_method",
+    "教师活动": "teacher_activity",
+    "学生活动": "student_activity",
+    "学习活动": "student_activity",
+    "设计意图": "design_intent",
+    "板书设计": "blackboard_design",
+    "作业": "homework",
+    "作业设计": "homework",
+    "课后小记": "reflection",
+    "教学反思": "reflection",
+    "课堂小结": "reflection",
+}
+
+
+def _dynamic_field_key(field: str) -> str:
+    return re.sub(r"[\s\u3000_\-./:：;；，,。()（）\[\]【】]+", "", str(field or "")).lower()
+
+
+def _dynamic_alias_base_key(normalized: str) -> str:
+    exact = _DYNAMIC_FIELD_ALIASES.get(normalized)
+    if exact:
+        return exact
+    marker_groups = (
+        (("课题", "题目"), "lesson_title"),
+        (("教学方法", "教法", "学法"), "teaching_method"),
+        (("主要教学内容", "教学过程", "教学流程", "教学环节", "教学活动"), "teaching_process"),
+        (("教学目标", "教学目的", "学习目标", "核心素养目标", "知识目标", "能力目标", "情感目标"), "teaching_goals"),
+        (("教学重难点", "重点难点", "重点和难点"), "teaching_key_difficult"),
+        (("教学重点",), "key_points"),
+        (("教学难点",), "difficult_points"),
+        (("教学环境", "对教学环境的要求"), "teaching_environment"),
+        (("教学准备", "课前准备", "教具准备"), "teaching_preparation"),
+        (("教具", "挂图", "教学用具"), "teaching_aids"),
+        (("学情分析", "学生分析", "学习者分析"), "student_analysis"),
+        (("教师活动", "教师行为", "教师指导"), "teacher_activity"),
+        (("学生活动", "学生行为", "学习活动"), "student_activity"),
+        (("设计意图", "设计说明", "活动意图"), "design_intent"),
+        (("板书",), "blackboard_design"),
+        (("作业", "课后任务"), "homework"),
+        (("教学反思", "课后反思", "课后小记", "教学后记", "课堂小结"), "reflection"),
+        (("授课班级", "班级"), "class_name"),
+        (("课时", "学时"), "class_hour"),
+        (("授课类型", "课型"), "class_type"),
+        (("学科", "课程名称", "科目"), "subject"),
+        (("年级",), "grade"),
+    )
+    for markers, base_key in marker_groups:
+        if any(marker in normalized for marker in markers):
+            return base_key
+    return ""
+
+
+def _semantic_dynamic_fallback(
+    field: str,
+    base: dict[str, str],
+    *,
+    title: str,
+    scope: str,
+    material_terms: list[str],
+) -> str:
+    """Generate useful local content for Chinese/custom template fields."""
+    raw = str(field or "").strip()
+    normalized = _dynamic_field_key(raw)
+    alias_key = _dynamic_alias_base_key(normalized)
+    if alias_key and _clean_text(base.get(alias_key)):
+        return _clean_text(base[alias_key])
+
+    term_text = "、".join(material_terms[:5]) or f"《{title}》的核心知识、方法与应用"
+    if any(marker in normalized for marker in ("审批意见", "审批", "签字", "签名")):
+        return "待审批人填写。"
+    if any(marker in normalized for marker in ("教研组意见", "教研意见")):
+        return "建议教研组围绕目标、任务、评价一致性和课堂实施可行性进行审议，具体意见由教研组填写。"
+    if "教材分析" in normalized:
+        return f"本课以《{title}》为核心，教材重点聚焦{term_text}，应通过具体任务帮助学生建立知识与真实应用之间的联系。"
+    if "课程标准" in normalized:
+        return f"依据课程标准，学生应理解并运用{term_text}，在任务实践、交流表达和反思改进中发展学科核心素养。"
+    if "核心素养" in normalized:
+        return f"围绕{term_text}，重点培养学生的问题分析、实践操作、合作交流、规范意识和迁移应用能力。"
+    if any(marker in normalized for marker in ("学习任务", "任务设计")):
+        scope_text = "分阶段完成项目成果" if scope == "project_lesson" else "完成观察分析、任务实践和成果表达"
+        return f"学习任务：围绕{term_text}，学生通过小组合作{scope_text}，并依据评价标准进行自评与互评。"
+    if any(marker in normalized for marker in ("评价任务", "评价标准", "教学评价", "learning_evidence", "learningevidence", "学习证据")):
+        return f"学习证据与评价：收集任务单、课堂观察记录、阶段成果、展示汇报和反思记录，重点评价学生对{term_text}的理解与应用。"
+    if any(marker in normalized for marker in ("教学资源", "学习资源", "resource")):
+        return _clean_text(base.get("teaching_resources") or base.get("teaching_preparation"))
+    if "信息技术应用" in normalized:
+        return f"使用多媒体演示、数字任务单和学习平台呈现{term_text}，支持过程记录、成果展示和即时评价。"
+    if any(marker in normalized for marker in ("安全教育", "安全要求", "safety")):
+        return f"安全教育：{_clean_text(base.get('safety_rules'))}"
+    if "德育渗透" in normalized:
+        return "在任务合作、规范操作和成果评价中渗透责任意识、质量意识、团队协作和诚实记录要求。"
+    if "跨学科融合" in normalized:
+        return f"围绕{term_text}，融合数学数据分析、科学探究、信息技术应用和工程实践，形成综合解决问题的任务。"
+    if "课后拓展" in normalized:
+        return f"围绕{term_text}寻找一个真实应用案例，记录问题、解决思路和可继续改进的方向。"
+    if any(marker in normalized for marker in ("二次备课", "个性化修改")):
+        return f"根据课堂观察和任务完成情况，重点关注学生对{term_text}的理解差异，调整教学支架、练习梯度和反馈方式。"
+    if any(marker in normalized for marker in ("assessment", "evaluation")):
+        return _clean_text(base.get("assessment"))
+    if "objective" in normalized or "goal" in normalized:
+        return _clean_text(base.get("teaching_goals"))
+    if "method" in normalized:
+        return _clean_text(base.get("teaching_method"))
+    if "activity" in normalized:
+        return _clean_text(base.get("student_activity"))
+    if "reflection" in normalized:
+        return _clean_text(base.get("reflection"))
+    if "homework" in normalized:
+        return _clean_text(base.get("homework"))
+    return f"{_field_label_hint(raw)}：围绕《{title}》的课堂目标、学习任务和评价证据补充内容，建议教师结合本班实际进一步完善。"
 
 
 def _local_fallback_fields(
@@ -848,7 +1004,17 @@ def _local_fallback_fields(
         base["teaching_process"] += f"\n教材依据：{GENERAL_MATERIAL_BASIS}"
 
     base = normalize_lesson_field_aliases(base)
-    return {field: base.get(field, f"围绕《{title_text}》生成“{_field_label_hint(field)}”相关内容。") for field in dynamic_fields}
+    return {
+        field: base.get(field)
+        or _semantic_dynamic_fallback(
+            field,
+            base,
+            title=title_text,
+            scope=scope,
+            material_terms=material_terms,
+        )
+        for field in dynamic_fields
+    }
 
 
 def build_lesson_prompt(
