@@ -7,6 +7,7 @@ from typing import Any, Iterable
 from docx import Document
 from docx.oxml.ns import qn
 
+from .docx_security import validate_docx_path
 from .docx_grid import GridCell, parse_table_grid, find_cell_by_grid
 
 PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([^{}\r\n\t<>]+?)\s*\}\}")
@@ -305,6 +306,7 @@ def _scan_placeholders(document: Document) -> tuple[list[str], dict[str, list[di
 
 
 def analyze_template(path: str | Path) -> dict[str, Any]:
+    validate_docx_path(path)
     document = Document(str(path))
     placeholders, field_context = _scan_placeholders(document)
     mapped_fields: list[str] = []

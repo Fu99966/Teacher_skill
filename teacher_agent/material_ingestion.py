@@ -7,6 +7,8 @@ from typing import BinaryIO
 
 from docx import Document
 
+from .docx_security import DocxSecurityError, validate_docx_bytes
+
 
 @dataclass
 class MaterialExtraction:
@@ -65,7 +67,11 @@ def _decode_text(raw: bytes) -> str:
 
 def _extract_docx_text(raw: bytes, warnings: list[str]) -> str:
     try:
+        validate_docx_bytes(raw, source_name="上传的 Word 教材")
         document = Document(BytesIO(raw))
+    except DocxSecurityError as exc:
+        warnings.append(str(exc))
+        return ""
     except Exception as exc:
         warnings.append(f"Word 教材读取失败：{exc}")
         return ""

@@ -3,6 +3,8 @@ from __future__ import annotations
 from io import BytesIO
 from types import SimpleNamespace
 
+from docx import Document
+
 from teacher_agent.sample_template import create_sample_template
 from teacher_agent.web_app import TeacherAgentHandler
 from teacher_agent.workflow import TeacherWorkflow
@@ -46,16 +48,24 @@ def test_same_named_template_uploads_get_distinct_paths(monkeypatch, tmp_path):
     upload_dir = tmp_path / "uploads"
     monkeypatch.setattr(web_app, "UPLOAD_DIR", upload_dir)
     handler = object.__new__(TeacherAgentHandler)
+    first_docx = BytesIO()
+    first_document = Document()
+    first_document.add_paragraph("第一份模板")
+    first_document.save(first_docx)
+    second_docx = BytesIO()
+    second_document = Document()
+    second_document.add_paragraph("第二份模板")
+    second_document.save(second_docx)
 
     first = handler._save_template(
-        {"template": SimpleNamespace(filename="学校教案模板.docx", file=BytesIO(b"first"))}
+        {"template": SimpleNamespace(filename="学校教案模板.docx", file=BytesIO(first_docx.getvalue()))}
     )
     second = handler._save_template(
-        {"template": SimpleNamespace(filename="学校教案模板.docx", file=BytesIO(b"second"))}
+        {"template": SimpleNamespace(filename="学校教案模板.docx", file=BytesIO(second_docx.getvalue()))}
     )
 
     assert first != second
-    assert first.read_bytes() == b"first"
-    assert second.read_bytes() == b"second"
+    assert Document(str(first)).paragraphs[0].text == "第一份模板"
+    assert Document(str(second)).paragraphs[0].text == "第二份模板"
     assert first.name.endswith(".docx")
     assert second.name.endswith(".docx")

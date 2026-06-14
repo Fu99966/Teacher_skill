@@ -19,6 +19,7 @@ from .agent_core.task_router import route_task
 from .agent_core.tool_registry import build_lesson_tool_registry
 from .artifact_naming import unique_artifact_name, unique_upload_name
 from .deepseek_client import DeepSeekError
+from .docx_security import validate_docx_bytes
 from .history_store import HistoryStore
 from .lesson_generator import (
     DEFAULT_CLASS_TYPE,
@@ -1575,11 +1576,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         if not original_name.lower().endswith(".docx"):
             raise ValueError("请上传 .docx 模板")
 
+        raw_template = template_item.file.read()
+        validate_docx_bytes(raw_template, source_name=original_name)
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         upload_name = unique_upload_name(original_name)
         upload_path = UPLOAD_DIR / upload_name
         with upload_path.open("wb") as file:
-            file.write(template_item.file.read())
+            file.write(raw_template)
         return upload_path
 
 

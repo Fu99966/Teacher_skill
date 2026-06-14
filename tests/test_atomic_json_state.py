@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 from teacher_agent.agent_core.checkpoint import AgentCheckpointStore
 from teacher_agent.agent_core.state import AgentRunState
+from teacher_agent.atomic_json import atomic_write_json
 from teacher_agent.template_profile import TemplateProfileStore
 
 
@@ -65,3 +67,23 @@ def test_concurrent_template_profile_updates_leave_valid_profile(tmp_path):
     assert profile["profile_hit"] is True
     assert profile["mapped_fields"] == analysis["mapped_fields"]
     assert profile["table_mappings"]["teaching_method"]
+
+
+def test_atomic_write_json_retries_transient_windows_replace_denial(tmp_path, monkeypatch):
+    target = tmp_path / "state.json"
+    real_replace = os.replace
+    attempts = 0
+
+    def transient_replace(source, destination):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise PermissionError(5, "Access is denied")
+        real_replace(source, destination)
+
+    monkeypatch.setattr("teacher_agent.atomic_json.os.replace", transient_replace)
+
+    atomic_write_json(target, {"status": "saved"})
+
+    assert attempts == 3
+    assert json.loads(target.read_text(encoding="utf-8")) == {"status": "saved"}

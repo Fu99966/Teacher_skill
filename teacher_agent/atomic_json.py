@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Any, Iterator
 
 _LOCKS_GUARD = threading.Lock()
 _PATH_LOCKS: dict[str, threading.RLock] = {}
+_REPLACE_ATTEMPTS = 5
+_REPLACE_RETRY_DELAY_SECONDS = 0.01
 
 
 def _lock_for(path: str | Path) -> threading.RLock:
@@ -33,6 +36,17 @@ def read_json(path: str | Path, default: Any = None) -> Any:
         return json.loads(target.read_text(encoding="utf-8"))
 
 
+def _replace_with_retry(source: Path, target: Path) -> None:
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_RETRY_DELAY_SECONDS * (attempt + 1))
+
+
 def atomic_write_json(path: str | Path, value: Any, *, indent: int | None = None) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -43,7 +57,7 @@ def atomic_write_json(path: str | Path, value: Any, *, indent: int | None = None
                 json.dump(value, file, ensure_ascii=False, indent=indent)
                 file.flush()
                 os.fsync(file.fileno())
-            os.replace(temporary, target)
+            _replace_with_retry(temporary, target)
         finally:
             if temporary.exists():
                 temporary.unlink()
