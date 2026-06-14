@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .atomic_json import atomic_write_json, json_path_lock, read_json
+
 
 class TemplateProfileStore:
     def __init__(self, base_dir: str | Path) -> None:
@@ -31,31 +33,32 @@ class TemplateProfileStore:
 
     def get_or_create(self, template_id: str, template_analysis: dict[str, Any]) -> dict[str, Any]:
         path = self._path(template_id)
-        if path.exists():
-            try:
-                profile = json.loads(path.read_text(encoding="utf-8"))
-                profile["profile_hit"] = True
-                profile["last_seen_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-                return profile
-            except (json.JSONDecodeError, OSError):
-                pass
+        with json_path_lock(path):
+            if path.exists():
+                try:
+                    profile = read_json(path)
+                    profile["profile_hit"] = True
+                    profile["last_seen_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                    atomic_write_json(path, profile, indent=2)
+                    return profile
+                except (json.JSONDecodeError, OSError):
+                    pass
 
-        profile = {
-            "template_id": template_id,
-            "profile_hit": False,
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "last_seen_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "mapped_fields": list(template_analysis.get("mapped_fields") or []),
-            "table_mappings": template_analysis.get("table_mappings", {}),
-            "repeat_fill_mode": "first_only",
-            "duplicate_table_policy": "first_only",
-            "teaching_method_targets": _targets_for(template_analysis, "teaching_method"),
-            "known_risks": _known_risks(template_analysis, None),
-            "last_successful_fill": {},
-        }
-        path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-        return profile
+            profile = {
+                "template_id": template_id,
+                "profile_hit": False,
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_seen_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "mapped_fields": list(template_analysis.get("mapped_fields") or []),
+                "table_mappings": template_analysis.get("table_mappings", {}),
+                "repeat_fill_mode": "first_only",
+                "duplicate_table_policy": "first_only",
+                "teaching_method_targets": _targets_for(template_analysis, "teaching_method"),
+                "known_risks": _known_risks(template_analysis, None),
+                "last_successful_fill": {},
+            }
+            atomic_write_json(path, profile, indent=2)
+            return profile
 
     def apply_profile(self, template_analysis: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         """Merge known-good mappings into fresh analysis without hiding current errors."""
@@ -92,30 +95,34 @@ class TemplateProfileStore:
         known_risks: list[str] | None = None,
     ) -> None:
         path = self._path(template_id)
-        profile = self.get_or_create(template_id, {"mapped_fields": mapped_fields or [], "table_mappings": table_mappings})
-        profile["profile_hit"] = True
-        profile["mapped_fields"] = mapped_fields or profile.get("mapped_fields") or []
-        profile["table_mappings"] = table_mappings
-        profile["repeat_fill_mode"] = repeat_fill_mode or profile.get("repeat_fill_mode") or "first_only"
-        profile["duplicate_table_policy"] = profile["repeat_fill_mode"]
-        profile["teaching_method_targets"] = list(table_mappings.get("teaching_method") or [])
-        profile["known_risks"] = known_risks or _known_risks({}, fill_report)
-        profile["last_successful_fill"] = {
-            "filled_non_empty_count": fill_report.get("filled_non_empty_count"),
-            "table_write_count": fill_report.get("table_write_count"),
-            "field_write_counts": fill_report.get("field_write_counts"),
-            "repeated_sections_detected": fill_report.get("repeated_sections_detected"),
-            "filled_sections": fill_report.get("filled_sections"),
-        }
-        profile["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+        with json_path_lock(path):
+            profile = self.get_or_create(
+                template_id,
+                {"mapped_fields": mapped_fields or [], "table_mappings": table_mappings},
+            )
+            profile["profile_hit"] = True
+            profile["mapped_fields"] = mapped_fields or profile.get("mapped_fields") or []
+            profile["table_mappings"] = table_mappings
+            profile["repeat_fill_mode"] = repeat_fill_mode or profile.get("repeat_fill_mode") or "first_only"
+            profile["duplicate_table_policy"] = profile["repeat_fill_mode"]
+            profile["teaching_method_targets"] = list(table_mappings.get("teaching_method") or [])
+            profile["known_risks"] = known_risks or _known_risks({}, fill_report)
+            profile["last_successful_fill"] = {
+                "filled_non_empty_count": fill_report.get("filled_non_empty_count"),
+                "table_write_count": fill_report.get("table_write_count"),
+                "field_write_counts": fill_report.get("field_write_counts"),
+                "repeated_sections_detected": fill_report.get("repeated_sections_detected"),
+                "filled_sections": fill_report.get("filled_sections"),
+            }
+            profile["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            atomic_write_json(path, profile, indent=2)
 
     def get_known_targets(self, template_id: str) -> dict[str, Any] | None:
         path = self._path(template_id)
         if not path.exists():
             return None
         try:
-            profile = json.loads(path.read_text(encoding="utf-8"))
+            profile = read_json(path)
             return profile.get("table_mappings")
         except (json.JSONDecodeError, OSError):
             return None

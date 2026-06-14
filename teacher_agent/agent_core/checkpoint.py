@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 
+from ..atomic_json import atomic_write_json, json_path_lock, read_json
 from .state import AgentArtifact, AgentRunState
 
 
@@ -28,9 +29,7 @@ class AgentCheckpointStore:
     def save(self, state: AgentRunState) -> None:
         data = state.to_dict()
         data["_updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        self._path(state.session_id).write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        atomic_write_json(self._path(state.session_id), data, indent=2)
         self._update_index(state.session_id)
 
     def load(self, session_id: str) -> AgentRunState | None:
@@ -38,7 +37,7 @@ class AgentCheckpointStore:
         if not path.exists():
             return None
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = read_json(path)
         except (json.JSONDecodeError, OSError):
             return None
 
@@ -83,26 +82,34 @@ class AgentCheckpointStore:
 
     def delete(self, session_id: str) -> None:
         path = self._path(session_id)
-        if path.exists():
-            os.remove(str(path))
+        with json_path_lock(path):
+            if path.exists():
+                os.remove(str(path))
+        index_path = self.sessions_dir / "_index.json"
+        with json_path_lock(index_path):
+            entries = self._read_index(index_path)
+            if entries.pop(session_id, None) is not None:
+                atomic_write_json(index_path, entries)
 
     def list_recent(self, limit: int = 10) -> list[str]:
         index_path = self.sessions_dir / "_index.json"
-        if not index_path.exists():
-            return []
-        try:
-            items = json.loads(index_path.read_text(encoding="utf-8"))
-            return [i[0] for i in sorted(items, key=lambda x: x[1], reverse=True)[:limit]]
-        except (json.JSONDecodeError, OSError):
-            return []
+        entries = self._read_index(index_path)
+        return [
+            session_id
+            for session_id, _updated_at in sorted(entries.items(), key=lambda item: item[1], reverse=True)[:limit]
+        ]
 
     def _update_index(self, session_id: str) -> None:
         index_path = self.sessions_dir / "_index.json"
-        entries: dict[str, str] = {}
-        if index_path.exists():
-            try:
-                entries = json.loads(index_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                pass
-        entries[session_id] = time.strftime("%Y-%m-%dT%H:%M:%S")
-        index_path.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+        with json_path_lock(index_path):
+            entries = self._read_index(index_path)
+            entries[session_id] = f"{time.time_ns():020d}"
+            atomic_write_json(index_path, entries)
+
+    @staticmethod
+    def _read_index(index_path: Path) -> dict[str, str]:
+        try:
+            value = read_json(index_path, {})
+            return {str(key): str(updated_at) for key, updated_at in value.items()} if isinstance(value, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            return {}

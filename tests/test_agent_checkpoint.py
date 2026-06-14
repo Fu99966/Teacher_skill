@@ -51,3 +51,4 @@ def test_delete_removes_checkpoint(tmp_path):
     assert store.load("ckpt-3") is not None
     store.delete("ckpt-3")
     assert store.load("ckpt-3") is None
+    assert "ckpt-3" not in store.list_recent()
