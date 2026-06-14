@@ -133,7 +133,7 @@ pytest
 
 GitHub Actions 会在每次推送到 `main` 或创建 Pull Request 时自动执行：
 
-- Ubuntu：Python 3.10、3.11、3.12；
+- Ubuntu：Python 3.10、3.11、3.12、3.13；
 - Windows：Python 3.11；
 - Python 编译、前端 JavaScript 语法检查、模板扫描 smoke test、完整 pytest。
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,19 @@ def test_ci_runs_cross_platform_release_gates():
 
 def test_runtime_agent_artifacts_are_ignored():
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    rules = {line.strip() for line in gitignore.splitlines()}
 
-    assert "outputs/agent_sessions/" in gitignore
-    assert "outputs/template_profiles/" in gitignore
+    assert "outputs/" in rules
+
+
+def test_runtime_outputs_are_not_tracked_by_git():
+    tracked = subprocess.run(
+        ["git", "ls-files", "outputs"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+
+    assert tracked == ""
