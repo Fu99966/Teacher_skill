@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from docx import Document
+from pypdf import PdfReader
 
 from .docx_security import DocxSecurityError, validate_docx_bytes
 
@@ -89,16 +90,29 @@ def _extract_docx_text(raw: bytes, warnings: list[str]) -> str:
 
 
 def _extract_pdf_text_best_effort(raw: bytes, warnings: list[str]) -> str:
-    # This is intentionally dependency-free. It can read text-based PDFs poorly,
-    # but gives a graceful path until OCR / pypdf is introduced.
-    decoded = raw.decode("latin-1", errors="ignore")
-    visible = []
-    for chunk in decoded.replace("\r", "\n").splitlines():
-        chunk = "".join(ch for ch in chunk if ch == "\t" or ch == " " or ch.isprintable()).strip()
-        if len(chunk) >= 12 and not chunk.startswith(("%PDF", "endobj", "xref", "stream")):
-            visible.append(chunk)
-    warnings.append("PDF 仅做无依赖文本尝试；扫描版 PDF 需要后续 OCR 支持。")
-    return "\n".join(visible[:80])
+    try:
+        reader = PdfReader(BytesIO(raw), strict=False)
+    except Exception as exc:
+        warnings.append(f"PDF 教材读取失败：{exc}")
+        return ""
+
+    if reader.is_encrypted:
+        warnings.append("PDF 教材已加密，无法读取；请上传未加密版本。")
+        return ""
+
+    parts: list[str] = []
+    for page_number, page in enumerate(reader.pages, start=1):
+        try:
+            text = (page.extract_text() or "").strip()
+        except Exception as exc:
+            warnings.append(f"PDF 第 {page_number} 页文本提取失败：{exc}")
+            continue
+        if text:
+            parts.append(text)
+
+    if not parts:
+        warnings.append("PDF 中未检测到可提取文本；如果是扫描版，请先进行 OCR 后再上传。")
+    return "\n\n".join(parts)
 
 
 def _normalize_material_text(text: str) -> str:
