@@ -12,6 +12,7 @@ def test_ci_runs_cross_platform_release_gates():
     assert 'python-version: "3.10"' in workflow
     assert 'python-version: "3.11"' in workflow
     assert 'python-version: "3.12"' in workflow
+    assert 'python-version: "3.13"' in workflow
     assert "ubuntu-latest" in workflow
     assert "windows-latest" in workflow
     assert "python -m compileall teacher_agent" in workflow

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import cgi
 import json
 import mimetypes
 import re
@@ -39,6 +38,7 @@ from .sample_template import create_sample_template
 from .template_parser import analyze_template
 from .template_profile import TemplateProfileStore
 from .material_ingestion import extract_material_from_upload, merge_material_text
+from .multipart_form import MultipartForm, parse_multipart_form
 from .output_quality import inspect_docx_delivery_quality
 from .workflow import LessonRequest, TeacherWorkflow, build_workflow_schema
 
@@ -92,7 +92,7 @@ def _json_bytes(payload: dict, status: int = HTTPStatus.OK) -> tuple[int, bytes,
     return status, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8"
 
 
-def _form_value(form: cgi.FieldStorage, name: str, default: str = "") -> str:
+def _form_value(form: MultipartForm, name: str, default: str = "") -> str:
     item = form[name] if name in form else None
     if item is None or item.filename:
         return default
@@ -102,7 +102,7 @@ def _form_value(form: cgi.FieldStorage, name: str, default: str = "") -> str:
     return str(value)
 
 
-def _material_from_form(form: cgi.FieldStorage, typed_material: str) -> tuple[str, dict | None]:
+def _material_from_form(form: MultipartForm, typed_material: str) -> tuple[str, dict | None]:
     item = form["material_file"] if "material_file" in form else None
     if item is None or not item.filename:
         return typed_material, None
@@ -118,7 +118,7 @@ def _parse_probe(query: str) -> bool:
     return val in ("1", "true", "yes", "on")
 
 
-def _form_bool(form: cgi.FieldStorage, name: str, default: bool = False) -> bool:
+def _form_bool(form: MultipartForm, name: str, default: bool = False) -> bool:
     value = _form_value(form, name, "1" if default else "")
     return value.strip().lower() in {"1", "true", "yes", "on", "strict"}
 
@@ -949,20 +949,12 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         checkpoint.save(state)
         self._send(*_json_bytes(state.to_dict()))
 
-    def _read_multipart_form(self) -> cgi.FieldStorage:
+    def _read_multipart_form(self) -> MultipartForm:
         content_type = self.headers.get("Content-Type", "")
-        if "multipart/form-data" not in content_type:
-            raise ValueError("请使用表单提交")
+        content_length = int(self.headers.get("Content-Length", "0") or "0")
+        return parse_multipart_form(self.rfile, content_type, content_length)
 
-        return cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": content_type},
-            encoding="utf-8",
-            errors="replace",
-        )
-
-    def _read_lesson_form(self) -> tuple[cgi.FieldStorage, str, str, str, str, str, str, str, str, str, bool, str, Path, dict]:
+    def _read_lesson_form(self) -> tuple[MultipartForm, str, str, str, str, str, str, str, str, str, bool, str, Path, dict]:
         form = self._read_multipart_form()
 
         subject = _form_value(form, "subject", "语文")
@@ -997,7 +989,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         )
 
     def _read_agent_form(self) -> tuple[
-        cgi.FieldStorage,
+        MultipartForm,
         str,
         str,
         str,
@@ -1563,7 +1555,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             return
         self._send(*_json_bytes(payload))
 
-    def _save_template(self, form: cgi.FieldStorage, allow_sample: bool = False) -> Path:
+    def _save_template(self, form: MultipartForm, allow_sample: bool = False) -> Path:
         template_item = form["template"] if "template" in form else None
         if template_item is None or not template_item.filename:
             if allow_sample:
