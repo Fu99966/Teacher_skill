@@ -5,7 +5,9 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, ContextManager
+
+from .sqlite_store import managed_sqlite_connection
 
 
 class HistoryStore:
@@ -14,10 +16,8 @@ class HistoryStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.db_path))
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self) -> ContextManager[sqlite3.Connection]:
+        return managed_sqlite_connection(self.db_path)
 
     def _init_db(self) -> None:
         with self._connect() as connection:
