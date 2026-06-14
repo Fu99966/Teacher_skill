@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .atomic_json import atomic_write_json, json_path_lock, read_json
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "https://api.deepseek.com"
@@ -72,10 +74,8 @@ def load_local_env(path: str | Path | None = None) -> None:
 
 def load_saved_model_config(path: str | Path | None = None) -> dict[str, Any]:
     config_path = Path(path) if path else MODEL_CONFIG_PATH
-    if not config_path.exists():
-        return {}
     try:
-        value = json.loads(config_path.read_text(encoding="utf-8"))
+        value = read_json(config_path, {})
     except (OSError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
@@ -158,20 +158,19 @@ def get_model_config_public() -> dict[str, Any]:
 
 
 def save_model_config(config: dict[str, Any]) -> dict[str, Any]:
-    existing = load_saved_model_config()
-    merged = dict(existing)
-    merged.update({key: value for key, value in config.items() if value not in {None, ""}})
-    validated = _validate_model_config(merged, require_key=True)
-    MODEL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = MODEL_CONFIG_PATH.with_suffix(MODEL_CONFIG_PATH.suffix + ".tmp")
-    temporary_path.write_text(json.dumps(validated, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary_path.replace(MODEL_CONFIG_PATH)
+    with json_path_lock(MODEL_CONFIG_PATH):
+        existing = load_saved_model_config()
+        merged = dict(existing)
+        merged.update({key: value for key, value in config.items() if value not in {None, ""}})
+        validated = _validate_model_config(merged, require_key=True)
+        atomic_write_json(MODEL_CONFIG_PATH, validated, indent=2)
     return get_model_config_public()
 
 
 def clear_model_config() -> dict[str, Any]:
-    if MODEL_CONFIG_PATH.exists():
-        MODEL_CONFIG_PATH.unlink()
+    with json_path_lock(MODEL_CONFIG_PATH):
+        if MODEL_CONFIG_PATH.exists():
+            MODEL_CONFIG_PATH.unlink()
     return get_model_config_public()
 
 

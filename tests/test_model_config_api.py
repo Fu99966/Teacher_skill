@@ -4,6 +4,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer
 
 import teacher_agent.deepseek_client as deepseek_client
@@ -135,3 +136,28 @@ def test_model_config_test_endpoint_never_returns_full_key(monkeypatch, tmp_path
 def test_local_model_config_is_gitignored():
     gitignore = open(".gitignore", encoding="utf-8").read()
     assert ".teacher_skill_config.json" in gitignore
+
+
+def test_concurrent_model_config_saves_leave_valid_masked_config(monkeypatch, tmp_path):
+    config_path = tmp_path / ".teacher_skill_config.json"
+    monkeypatch.setattr(deepseek_client, "MODEL_CONFIG_PATH", config_path)
+
+    def save(index: int) -> dict:
+        return deepseek_client.save_model_config(
+            {
+                "provider": "deepseek",
+                "base_url": "https://api.deepseek.com",
+                "model": f"deepseek-model-{index}",
+                "api_key": f"sk-concurrent-secret-{index:04d}",
+            }
+        )
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        results = list(executor.map(save, range(40)))
+
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["model"].startswith("deepseek-model-")
+    assert persisted["api_key"].startswith("sk-concurrent-secret-")
+    assert all("api_key" not in result for result in results)
+    assert all("sk-concurrent-secret-" not in json.dumps(result) for result in results)
+    assert not config_path.with_suffix(config_path.suffix + ".tmp").exists()
