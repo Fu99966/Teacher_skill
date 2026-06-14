@@ -10,6 +10,7 @@ from ..template_profile import TemplateProfileStore
 from ..workflow import TeacherWorkflow
 from .evaluator import evaluate_delivery, evaluate_pedagogy_quality
 from .memory import AgentMemoryStore, apply_exact_teacher_edit_memory, build_teacher_memory_context
+from .pedagogy_reviser import revise_fields_from_pedagogy_review
 from .state import AgentArtifact, AgentRunState
 from .tool_spec import ToolRegistry, ToolSpec
 
@@ -113,6 +114,8 @@ def build_agent_tool_registry(
             fields = normalize_lesson_field_aliases(fields, str(task.get("raw_text") or ""))
             if reused_fields:
                 state.warnings.append("已复用同课题、同课时模板中的老师历史修改。")
+        state.task["_generation_backend"] = backend
+        state.task["_memory_fields_reused"] = reused_fields
         state.fields = fields
         state.status = "fields_generated"
         return {
@@ -142,10 +145,39 @@ def build_agent_tool_registry(
 
     def revise_fields_tool(context: dict[str, Any]) -> dict[str, Any]:
         state = _st(context)
-        suggestions = (state.review_report or {}).get("pedagogy_checks", [])
-        if suggestions:
-            state.warnings.append(f"教研检查提出 {len(suggestions)} 条建议，已在预览阶段保留给老师确认。")
-        return {"revised": bool(suggestions), "suggestion_count": len(suggestions)}
+        review = dict(state.review_report or {})
+        suggestions = review.get("suggestions") or []
+        allowed_fields = list((state.template_analysis or {}).get("mapped_fields") or (state.fields or {}).keys())
+        protected_fields = set((state.task or {}).get("_memory_fields_reused") or [])
+        if str((state.task or {}).get("_generation_backend") or "").startswith("mock_"):
+            protected_fields.update(allowed_fields)
+        allowed_fields = [field for field in allowed_fields if field not in protected_fields]
+        revised, changed_fields = revise_fields_from_pedagogy_review(
+            state.fields or {},
+            review,
+            state.task or {},
+            allowed_fields=allowed_fields,
+        )
+        state.fields = revised
+        after_review = evaluate_pedagogy_quality(revised, state.task or {})
+        after_review["revision"] = {
+            "changed_fields": changed_fields,
+            "before_score": review.get("score"),
+            "after_score": after_review.get("score"),
+            "after_passed": after_review.get("passed"),
+            "initial_suggestions": suggestions,
+        }
+        state.review_report = after_review
+        if changed_fields:
+            state.warnings.append("教研修订已改进字段：" + "、".join(changed_fields))
+        elif suggestions:
+            state.warnings.append("教研检查建议已保留，未自动改写已合格字段。")
+        return {
+            "revised": bool(changed_fields),
+            "suggestion_count": len(suggestions),
+            "revised_fields": changed_fields,
+            "after_score": after_review.get("score"),
+        }
 
     registry.register(
         "revise_fields",
