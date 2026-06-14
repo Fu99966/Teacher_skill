@@ -751,6 +751,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "fields": fields,
             "generation_backend": backend,
             "template_analysis": template_analysis,
+            "material_extraction": material_extraction,
+            "material_used": bool(material_extraction and material_extraction.get("char_count", 0)),
             "template_fields": template_fields,
             "template_id": _template_id_for(template_path),
         }))
@@ -1316,6 +1318,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             fields=result.state.fields or {},
             template_profile=result.state.template_profile,
         ).to_dict()
+        material_extraction = template_analysis.get("material_extraction")
 
         payload: dict[str, Any] = {
             **draft_result,
@@ -1341,6 +1344,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "template_mode": actual_template_mode,
             "repeat_fill_mode": repeat_fill_mode,
             "is_generic_material": is_generic_material,
+            "material_extraction": material_extraction,
+            "material_used": bool(material_extraction and material_extraction.get("char_count", 0)),
             "llm_status": llm_status,
             "mode": actual_template_mode,
             "visible_sections": ["fields", "trace", "download"],

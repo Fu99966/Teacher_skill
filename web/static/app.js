@@ -5,6 +5,7 @@ const useSchoolTemplate = document.querySelector("#use-school-template");
 const templateUploadWrap = document.querySelector("#template-upload-wrap");
 const templateInput = document.querySelector("#template-input");
 const materialFile = document.querySelector("#material-file");
+const materialExtractionStatus = document.querySelector("#material-extraction-status");
 const repeatModeWrap = document.querySelector("#repeat-mode-wrap");
 const generateButton = document.querySelector("#generate-button");
 const previewCard = document.querySelector("#preview-card");
@@ -429,6 +430,8 @@ function buildDiagnostics(data = {}) {
   const report = {
     template_mode: data.template_mode || (useSchoolTemplate.checked ? "upload" : "system"),
     generation_backend: data.generation_backend || currentGenerationBackend,
+    material_extraction: data.material_extraction || currentTemplateAnalysis?.material_extraction || null,
+    material_used: data.material_used ?? null,
     repeat_fill_mode: data.repeat_fill_mode || currentRequestContext.repeat_fill_mode || selectedRepeatFillMode(),
     teacher_diagnostic_report: data.teacher_diagnostic_report || currentTeacherDiagnosticReport,
     template_fields: data.template_fields || currentTemplateAnalysis?.mapped_fields || [],
@@ -439,6 +442,30 @@ function buildDiagnostics(data = {}) {
     agent_trace: data.workflow_trace || currentWorkflowTrace
   };
   diagnosticsOutput.textContent = JSON.stringify(report, null, 2);
+}
+
+function renderMaterialExtractionStatus(extraction = null) {
+  if (!materialExtractionStatus) return;
+  if (!extraction) {
+    materialExtractionStatus.hidden = true;
+    materialExtractionStatus.textContent = "";
+    delete materialExtractionStatus.dataset.status;
+    return;
+  }
+
+  const charCount = Number(extraction.char_count || 0);
+  const sourceName = extraction.source_name || "上传的教材资料";
+  const warnings = extraction.warnings || [];
+  materialExtractionStatus.hidden = false;
+  if (charCount > 0) {
+    materialExtractionStatus.dataset.status = "success";
+    materialExtractionStatus.textContent = `已读取 ${sourceName}（${charCount} 字），内容已用于本次教案生成。`;
+    return;
+  }
+
+  materialExtractionStatus.dataset.status = "warning";
+  materialExtractionStatus.textContent = warnings[0]
+    || `未从 ${sourceName} 提取到教材文字，本次将按通用内容生成。`;
 }
 
 function renderTeacherDiagnostic(report) {
@@ -478,6 +505,7 @@ function applyResult(data) {
 
   previewCard.hidden = false;
   deliveryCard.hidden = true;
+  renderMaterialExtractionStatus(data.material_extraction || currentTemplateAnalysis?.material_extraction || null);
   renderPreview(currentFields);
   renderTeacherDiagnostic(currentTeacherDiagnosticReport);
   buildDiagnostics(data);
@@ -485,6 +513,10 @@ function applyResult(data) {
   updateTeachingMethodGuard();
   if (data.generation_backend === "local_fallback") {
     showToast("AI 未配置，已使用本地示例内容生成初稿，可继续编辑后导出。");
+  }
+  const materialWarnings = data.material_extraction?.warnings || [];
+  if (data.material_extraction && !data.material_used && materialWarnings.length) {
+    showToast(materialWarnings[0], "error");
   }
 }
 
@@ -1026,6 +1058,7 @@ useSchoolTemplate.addEventListener("change", () => {
   templateUploadWrap.hidden = !useSchoolTemplate.checked;
   if (repeatModeWrap) repeatModeWrap.hidden = !useSchoolTemplate.checked;
 });
+materialFile.addEventListener("change", () => renderMaterialExtractionStatus(null));
 deriveMethodButton.addEventListener("click", deriveTeachingMethod);
 rememberEditButton.addEventListener("click", rememberCurrentEdit);
 exportButton.addEventListener("click", exportEditedDocument);

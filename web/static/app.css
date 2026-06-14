@@ -623,6 +623,23 @@ textarea:focus {
   margin: -4px 0 0;
 }
 
+.material-extraction-status {
+  grid-column: 2;
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--green);
+  color: #52613f;
+  background: #f4f7ef;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.material-extraction-status[data-status="warning"] {
+  border-left-color: var(--error);
+  color: #8f3528;
+  background: #fff4f1;
+}
+
 .form-actions {
   margin-top: 22px;
 }

@@ -14,12 +14,15 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "一句话生成教案" in html
     assert "material_file" in html
     assert "上传教材资料" in html
+    assert "material-extraction-status" in html
     assert "teacher-diagnostic-card" in html
     assert "记住这次修改" in html
 
     assert "/api/remember-edit" in js
     assert "teacher_diagnostic_report" in js
     assert "renderTeacherDiagnostic" in js
+    assert "renderMaterialExtractionStatus" in js
+    assert "material_extraction" in js
     assert "materialFile" in js
 
     assert "teacher-diagnostic-card" in css
