@@ -5,6 +5,7 @@ from typing import Any
 
 from ..agent_observer import build_teacher_diagnostic_report
 from ..history_store import HistoryStore
+from ..rag_context import build_knowledge_context
 from ..template_parser import analyze_template
 from ..template_profile import TemplateProfileStore
 from ..workflow import TeacherWorkflow
@@ -71,6 +72,14 @@ def build_agent_tool_registry(
         analysis = state.template_analysis or {}
         tmpl_fields = analysis.get("mapped_fields") or None
         material = str(task.get("material") or "")
+        knowledge_context = build_knowledge_context(
+            material,
+            subject=str(task.get("subject") or ""),
+            title=str(task.get("title") or ""),
+            class_type=str(task.get("class_type") or ""),
+            teaching_style=str(task.get("teaching_style") or ""),
+        )
+        enhanced_material = knowledge_context.enhanced_material(material)
 
         try:
             examples = AgentMemoryStore(memory_db).find_teacher_edit_examples(
@@ -89,7 +98,7 @@ def build_agent_tool_registry(
             subject=str(task.get("subject") or ""),
             grade=str(task.get("grade") or ""),
             title=str(task.get("title") or ""),
-            material=material,
+            material=enhanced_material,
             class_hour=str(task.get("class_hour") or "1课时"),
             class_type=str(task.get("class_type") or "新授课"),
             teaching_style=str(task.get("teaching_style") or "常规启发式"),
@@ -116,6 +125,9 @@ def build_agent_tool_registry(
                 state.warnings.append("已复用同课题、同课时模板中的老师历史修改。")
         state.task["_generation_backend"] = backend
         state.task["_memory_fields_reused"] = reused_fields
+        state.task["_knowledge_summary"] = knowledge_context.source_summary
+        state.task["_knowledge_chunk_count"] = len(knowledge_context.chunks)
+        state.task["_lesson_pattern"] = knowledge_context.lesson_pattern.get("key", "")
         state.fields = fields
         state.status = "fields_generated"
         return {
@@ -123,6 +135,9 @@ def build_agent_tool_registry(
             "field_count": len(fields),
             "memory_examples_used": len(examples),
             "memory_fields_reused": reused_fields,
+            "knowledge_summary": knowledge_context.source_summary,
+            "knowledge_chunk_count": len(knowledge_context.chunks),
+            "lesson_pattern": knowledge_context.lesson_pattern.get("key", ""),
         }
 
     registry.register(

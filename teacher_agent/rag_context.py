@@ -1,25 +1,19 @@
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
-from .lesson_patterns import infer_lesson_pattern, pattern_prompt_notes
+from .lesson_patterns import infer_lesson_pattern
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE_FIELDS = PROJECT_ROOT / "examples" / "sample_lesson_fields.json"
+MAX_DIRECT_MATERIAL_CHARS = 8000
+MAX_CHUNK_CHARS = 1600
+MAX_SELECTED_CHUNKS = 4
 
 
 @dataclass
 class KnowledgeContext:
-    """Dependency-free, per-request RAG package.
-
-    It does not create a persistent vector database. It extracts high-value
-    chunks from the teacher's pasted/uploaded material and combines them with
-    course-type guidance and a few local examples.
-    """
+    """Dependency-free, per-request retrieval context."""
 
     chunks: list[str]
     few_shot_notes: list[str]
@@ -30,7 +24,15 @@ class KnowledgeContext:
         return asdict(self)
 
     def enhanced_material(self, material: str) -> str:
-        sections = [material.strip()]
+        source = (material or "").strip()
+        sections: list[str] = []
+        if source and len(source) <= MAX_DIRECT_MATERIAL_CHARS:
+            sections.append("# 教材内容 / 补充资料\n" + source)
+        elif source:
+            sections.append(
+                "# 教材内容 / 补充资料\n"
+                f"材料较长，已提取重点片段（原文 {len(source)} 字），生成时请优先依据下方片段。"
+            )
         if self.chunks:
             sections.append("# 系统检索到的教材重点片段\n" + "\n\n".join(self.chunks))
         if self.lesson_pattern:
@@ -57,7 +59,15 @@ def _split_material(material: str) -> list[str]:
     if not text:
         return []
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n|[。！？；]\s*", text) if part.strip()]
-    return [paragraph for paragraph in paragraphs if len(paragraph) >= 8]
+    unique: list[str] = []
+    seen: set[str] = set()
+    for paragraph in paragraphs:
+        chunk = paragraph[:MAX_CHUNK_CHARS]
+        if len(chunk) < 8 or chunk in seen:
+            continue
+        seen.add(chunk)
+        unique.append(chunk)
+    return unique
 
 
 def _score_chunk(chunk: str, subject: str, title: str, class_type: str, teaching_style: str) -> int:
@@ -84,17 +94,8 @@ def _load_few_shot_notes(class_type: str, teaching_style: str) -> list[str]:
     if "项目" in teaching_style or "PBL" in teaching_style or "项目" in class_type:
         notes.append("项目式课堂要明确真实任务、成果标准、分工协作和展示评价。")
 
-    if not EXAMPLE_FIELDS.exists():
-        return notes
-
-    try:
-        data = json.loads(EXAMPLE_FIELDS.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return notes
-
-    process = str(data.get("teaching_process") or "").strip()
-    if process:
-        notes.append("优秀样例启发：" + process[:180].replace("\n", "；"))
+    # Do not inject a concrete lesson's prose into unrelated subjects. Teacher
+    # edit memory is responsible for same-topic examples in the Agent flow.
     return notes[:5]
 
 
@@ -112,7 +113,7 @@ def build_knowledge_context(
         key=lambda chunk: _score_chunk(chunk, subject, title, class_type, teaching_style),
         reverse=True,
     )
-    selected = ranked[:4]
+    selected = ranked[:MAX_SELECTED_CHUNKS]
     lesson_pattern = infer_lesson_pattern(class_type, teaching_style, title).to_dict()
     few_shot_notes = _load_few_shot_notes(class_type, teaching_style)
     summary = (
