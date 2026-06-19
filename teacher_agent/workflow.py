@@ -398,6 +398,7 @@ class TeacherWorkflow:
             fill_report=fill_report.to_dict(),
             evaluation_report={"passed": not fill_report.errors},
             fields=fields,
+            output_quality_report=output_quality_report,
         ).to_dict()
         preview_pdf = render_docx_pdf_preview(output_path, preview_dir)
         preview_url = f"/preview/{quote(preview_pdf.name)}" if preview_pdf else None

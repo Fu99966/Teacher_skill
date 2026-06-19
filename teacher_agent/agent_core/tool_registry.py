@@ -277,6 +277,7 @@ def build_agent_tool_registry(
             fill_report=(state.export_result or {}).get("fill_report", {}),
             evaluation_report=state.evaluation_report,
             fields=state.fields or {},
+            output_quality_report=(state.export_result or {}).get("output_quality_report"),
             template_profile=state.template_profile,
         )
         state.teacher_report = report.to_dict()

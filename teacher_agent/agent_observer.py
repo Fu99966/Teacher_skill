@@ -75,11 +75,13 @@ def build_teacher_diagnostic_report(
     fill_report: dict[str, Any] | None,
     evaluation_report: dict[str, Any] | None,
     fields: dict[str, Any] | None,
+    output_quality_report: dict[str, Any] | None = None,
     template_profile: dict[str, Any] | None = None,
 ) -> TeacherDiagnosticReport:
     analysis = template_analysis or {}
     fill = fill_report or {}
     evaluation = evaluation_report or {}
+    output_quality = output_quality_report or {}
     field_values = fields or {}
 
     mapped_fields = list(analysis.get("mapped_fields") or [])
@@ -120,6 +122,8 @@ def build_teacher_diagnostic_report(
         reasons.append("Word 中仍有占位符未替换：" + "、".join(remaining_placeholders[:8]))
     if evaluation and not evaluation.get("passed", True):
         reasons.append(str(evaluation.get("summary") or "自动交付检查未通过"))
+    if output_quality and not output_quality.get("passed", True):
+        reasons.extend(str(item) for item in (output_quality.get("errors") or [])[:6])
     if not mapped_fields:
         reasons.append("模板中没有识别到可填字段")
 
@@ -130,10 +134,12 @@ def build_teacher_diagnostic_report(
         next_actions.append("检查未写入字段的模板位置；必要时改用占位符模板或在预览页补齐字段。")
     if remaining_placeholders:
         next_actions.append("确认占位符名称与生成字段名称完全一致。")
+    if output_quality and not output_quality.get("passed", True):
+        next_actions.append("根据最终 Word 质量检查提示修复内容后重新导出；系统会优先尝试自动修复可恢复问题。")
     if not next_actions:
         next_actions.append("可下载 Word；如学校格式有细节要求，可在 Word 中做最终微调。")
 
-    if errors or (evaluation and not evaluation.get("passed", True)):
+    if errors or (evaluation and not evaluation.get("passed", True)) or (output_quality and not output_quality.get("passed", True)):
         status = "failed"
     elif unwritten or warnings or remaining_placeholders:
         status = "needs_review"

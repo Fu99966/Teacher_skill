@@ -9,6 +9,7 @@ from teacher_agent.agent_core.repair import diagnose_failure
 from teacher_agent.agent_core.state import AgentRunState
 from teacher_agent.agent_core.tool_registry import build_agent_tool_registry
 from teacher_agent.agent_core.tool_spec import ToolRegistry, ToolSpec
+from teacher_agent.agent_observer import build_teacher_diagnostic_report
 from teacher_agent.output_quality import inspect_docx_delivery_quality
 
 
@@ -186,3 +187,29 @@ def test_final_docx_quality_requires_generated_field_content(tmp_path):
     assert report["passed"] is False
     assert report["checks"]["field_content_lesson_title"] is False
     assert any("lesson_title" in error for error in report["errors"])
+
+
+def test_teacher_diagnostic_surfaces_final_docx_quality_errors():
+    report = build_teacher_diagnostic_report(
+        template_analysis={"mapped_fields": ["lesson_title", "teaching_process", "teaching_method"]},
+        fill_report={
+            "field_write_counts": {"lesson_title": 1, "teaching_process": 1, "teaching_method": 1},
+            "errors": [],
+            "warnings": [],
+        },
+        evaluation_report={"passed": True},
+        output_quality_report={
+            "passed": False,
+            "errors": ["最终 Word 中未找到字段内容：teaching_method"],
+        },
+        fields={
+            "lesson_title": "PCB板设计",
+            "teaching_process": "项目过程",
+            "teaching_method": "项目教学法",
+        },
+    )
+    data = report.to_dict()
+
+    assert data["status"] == "failed"
+    assert any("teaching_method" in reason for reason in data["reasons"])
+    assert any("最终 Word" in action for action in data["next_actions"])

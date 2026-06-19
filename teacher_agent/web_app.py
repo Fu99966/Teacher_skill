@@ -1316,6 +1316,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             fill_report=export_result.get("fill_report"),
             evaluation_report=result.state.evaluation_report,
             fields=result.state.fields or {},
+            output_quality_report=export_result.get("output_quality_report"),
             template_profile=result.state.template_profile,
         ).to_dict()
         material_extraction = template_analysis.get("material_extraction")
@@ -1424,6 +1425,7 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             fill_report=result.get("fill_report"),
             evaluation_report=result["evaluation_report"],
             fields=fields,
+            output_quality_report=result.get("output_quality_report"),
         )
         result["teacher_diagnostic_report"] = teacher_diagnostic.to_dict()
         result["teacher_report"] = {"summary": teacher_diagnostic.to_markdown(), "passed": teacher_diagnostic.status == "passed"}
