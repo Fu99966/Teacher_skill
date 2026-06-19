@@ -1017,7 +1017,8 @@ textarea:focus {
 }
 
 .template-profile-status,
-.memory-status {
+.memory-status,
+.knowledge-status {
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: var(--radius);
@@ -1032,7 +1033,8 @@ textarea:focus {
   color: #4b5c37;
 }
 
-.memory-status[data-status="reused"] {
+.memory-status[data-status="reused"],
+.knowledge-status[data-status="used"] {
   background: rgba(120, 140, 93, 0.12);
   color: #4b5c37;
 }

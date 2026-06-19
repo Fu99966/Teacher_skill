@@ -100,9 +100,10 @@ def test_agent_draft_tool_uses_bounded_knowledge_context(monkeypatch, tmp_path: 
 def test_agent_run_web_response_exposes_knowledge_diagnostics():
     source = Path("teacher_agent/web_app.py").read_text(encoding="utf-8")
 
-    assert '"knowledge_summary": result.state.task.get("_knowledge_summary", "")' in source
-    assert '"knowledge_chunk_count": result.state.task.get("_knowledge_chunk_count", 0)' in source
-    assert '"lesson_pattern": result.state.task.get("_lesson_pattern", "")' in source
+    assert 'teacher_diagnostic_report["knowledge_status"]' in source
+    assert '"knowledge_summary": knowledge_summary' in source
+    assert '"knowledge_chunk_count": knowledge_chunk_count' in source
+    assert '"lesson_pattern": lesson_pattern' in source
     assert '"repair_summary": repair_summary' in source
     assert '"repair_actions": repair_actions' in source
     assert '"memory_examples_used": memory_examples_used' in source

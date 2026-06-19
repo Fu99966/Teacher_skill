@@ -1323,6 +1323,9 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         repair_actions = result.state.task.get("_repair_actions") or []
         memory_examples_used = int(result.state.task.get("_memory_examples_used") or 0)
         memory_fields_reused = result.state.task.get("_memory_fields_reused") or []
+        knowledge_summary = str(result.state.task.get("_knowledge_summary") or "")
+        knowledge_chunk_count = int(result.state.task.get("_knowledge_chunk_count") or 0)
+        lesson_pattern = str(result.state.task.get("_lesson_pattern") or "")
         if repair_summary:
             teacher_diagnostic_report.setdefault("next_actions", []).insert(0, repair_summary)
         if repair_actions:
@@ -1331,6 +1334,11 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
         teacher_diagnostic_report["memory_status"] = {
             "examples_used": memory_examples_used,
             "fields_reused": memory_fields_reused,
+        }
+        teacher_diagnostic_report["knowledge_status"] = {
+            "summary": knowledge_summary,
+            "chunk_count": knowledge_chunk_count,
+            "lesson_pattern": lesson_pattern,
         }
         material_extraction = template_analysis.get("material_extraction")
 
@@ -1360,9 +1368,9 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "is_generic_material": is_generic_material,
             "material_extraction": material_extraction,
             "material_used": bool(material_extraction and material_extraction.get("char_count", 0)),
-            "knowledge_summary": result.state.task.get("_knowledge_summary", ""),
-            "knowledge_chunk_count": result.state.task.get("_knowledge_chunk_count", 0),
-            "lesson_pattern": result.state.task.get("_lesson_pattern", ""),
+            "knowledge_summary": knowledge_summary,
+            "knowledge_chunk_count": knowledge_chunk_count,
+            "lesson_pattern": lesson_pattern,
             "repair_summary": repair_summary,
             "repair_actions": repair_actions,
             "memory_examples_used": memory_examples_used,

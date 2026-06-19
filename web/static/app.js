@@ -18,6 +18,7 @@ const repairActionsCard = document.querySelector("#repair-actions-card");
 const repairActionsList = document.querySelector("#repair-actions-list");
 const templateProfileStatus = document.querySelector("#template-profile-status");
 const memoryStatus = document.querySelector("#memory-status");
+const knowledgeStatus = document.querySelector("#knowledge-status");
 const scopeHint = document.querySelector("#scope-hint");
 const methodWarning = document.querySelector("#method-warning");
 const deriveMethodButton = document.querySelector("#derive-method-button");
@@ -528,6 +529,7 @@ function renderTeacherDiagnostic(report) {
   renderRepairActions(current.repair_actions || []);
   renderTemplateProfileStatus(current.template_profile || null);
   renderMemoryStatus(current.memory_status || null);
+  renderKnowledgeStatus(current.knowledge_status || null);
 }
 
 function renderRepairActions(actions = []) {
@@ -569,6 +571,24 @@ function renderMemoryStatus(memory = null) {
   memoryStatus.textContent = fieldsReused.length
     ? `老师修改记忆：已参考 ${examplesUsed} 条历史修改，并复用字段 ${fieldsReused.join("、")}。`
     : `老师修改记忆：已参考 ${examplesUsed} 条历史修改，本次未直接覆盖字段。`;
+}
+
+function renderKnowledgeStatus(knowledge = null) {
+  if (!knowledgeStatus) return;
+  const summary = String(knowledge?.summary || "").trim();
+  const chunkCount = Number(knowledge?.chunk_count || 0);
+  const lessonPattern = String(knowledge?.lesson_pattern || "").trim();
+  knowledgeStatus.hidden = !summary && chunkCount === 0 && !lessonPattern;
+  if (knowledgeStatus.hidden) return;
+  knowledgeStatus.dataset.status = chunkCount > 0 ? "used" : "pattern";
+  if (summary) {
+    knowledgeStatus.textContent = summary;
+    return;
+  }
+  const parts = [];
+  if (chunkCount > 0) parts.push(`已抽取 ${chunkCount} 个重点片段`);
+  if (lessonPattern) parts.push(`识别课型 ${lessonPattern}`);
+  knowledgeStatus.textContent = `教材资料：${parts.join("，") || "已进入生成上下文"}。`;
 }
 
 function applyResult(data) {
