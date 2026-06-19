@@ -65,6 +65,8 @@ def repair_state(state: AgentRunState) -> AgentRunState:
 
     fields = dict(state.fields or {})
     task = state.task or {}
+    state.task = task
+    repair_actions: list[dict[str, Any]] = []
 
     from ..lesson_generator import (
         _local_fallback_fields,
@@ -96,9 +98,19 @@ def repair_state(state: AgentRunState) -> AgentRunState:
         class_type=str(fields.get("class_type") or task.get("class_type") or ""),
     )
 
+    backfilled_fields: list[str] = []
     for key in dynamic_fields:
         if not str(fields.get(key) or "").strip():
-            fields[key] = fallback.get(key, "")
+            replacement = fallback.get(key, "")
+            fields[key] = replacement
+            if str(replacement or "").strip():
+                backfilled_fields.append(key)
+    if backfilled_fields:
+        repair_actions.append({
+            "type": "backfill_empty_fields",
+            "fields": backfilled_fields,
+            "message": "已用本地草稿补齐空字段：" + "、".join(backfilled_fields[:8]),
+        })
 
     if not str(fields.get("teaching_method") or "").strip() and str(fields.get("teaching_process") or "").strip():
         fields["teaching_method"] = refine_lesson_field(
@@ -107,8 +119,15 @@ def repair_state(state: AgentRunState) -> AgentRunState:
             "derive_from_process",
             title,
         )
+        if str(fields.get("teaching_method") or "").strip():
+            repair_actions.append({
+                "type": "derive_teaching_method",
+                "fields": ["teaching_method"],
+                "message": "已从主要教学内容派生教学方法的运用。",
+            })
 
     raw_request = str(task.get("raw_text") or task.get("agent_request") or "").strip()
+    prompt_leak_fields: list[str] = []
     for key in dynamic_fields:
         value = str(fields.get(key) or "")
         if not value:
@@ -120,9 +139,27 @@ def repair_state(state: AgentRunState) -> AgentRunState:
         ).strip()
         if cleaned != value:
             fields[key] = cleaned or fallback.get(key, value)
+            prompt_leak_fields.append(key)
+    if prompt_leak_fields:
+        repair_actions.append({
+            "type": "remove_prompt_leak",
+            "fields": prompt_leak_fields,
+            "message": "已清理生成指令泄漏风险：" + "、".join(prompt_leak_fields[:8]),
+        })
 
     state.fields = fields
     if any(str(value or "").strip() for value in fields.values()):
+        if repair_actions:
+            summary = f"已自动修复 {len(repair_actions)} 项：" + "；".join(
+                str(action.get("message") or action.get("type") or "") for action in repair_actions
+            )
+        else:
+            summary = "已执行自动修复检查，未发现需要改写的字段。"
+        task["_repair_actions"] = repair_actions
+        task["_repair_summary"] = summary
+        if isinstance(state.teacher_report, dict):
+            state.teacher_report["repair_actions"] = repair_actions
+            state.teacher_report["repair_summary"] = summary
         state.warnings.append("已执行自动修复：补齐空字段、派生教学方法并清理 prompt 泄漏风险。")
         state.status = "fields_generated"
         state.next_action = "export_docx"

@@ -46,6 +46,10 @@ def test_repair_fills_missing_fields():
     if state.status == "fields_generated":
         non_empty = sum(1 for v in (state.fields or {}).values() if str(v or "").strip())
         assert non_empty > 0, "Repair should produce non-empty fields"
+        actions = state.task.get("_repair_actions") or []
+        assert state.task.get("_repair_summary")
+        assert any(action.get("type") == "backfill_empty_fields" for action in actions)
+        assert state.teacher_report.get("repair_actions") == actions
 
 
 def test_repair_respects_max_retries():

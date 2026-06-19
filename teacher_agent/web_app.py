@@ -1319,6 +1319,13 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             output_quality_report=export_result.get("output_quality_report"),
             template_profile=result.state.template_profile,
         ).to_dict()
+        repair_summary = str(result.state.task.get("_repair_summary") or "")
+        repair_actions = result.state.task.get("_repair_actions") or []
+        if repair_summary:
+            teacher_diagnostic_report.setdefault("next_actions", []).insert(0, repair_summary)
+        if repair_actions:
+            teacher_diagnostic_report["repair_actions"] = repair_actions
+            teacher_diagnostic_report["repair_summary"] = repair_summary
         material_extraction = template_analysis.get("material_extraction")
 
         payload: dict[str, Any] = {
@@ -1350,6 +1357,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
             "knowledge_summary": result.state.task.get("_knowledge_summary", ""),
             "knowledge_chunk_count": result.state.task.get("_knowledge_chunk_count", 0),
             "lesson_pattern": result.state.task.get("_lesson_pattern", ""),
+            "repair_summary": repair_summary,
+            "repair_actions": repair_actions,
             "llm_status": llm_status,
             "mode": actual_template_mode,
             "visible_sections": ["fields", "trace", "download"],
@@ -1364,6 +1373,8 @@ class TeacherAgentHandler(BaseHTTPRequestHandler):
                 "field_write_counts": (export_result.get("fill_report") or {}).get("field_write_counts", {}),
                 "template_errors": template_analysis.get("errors", []),
                 "output_quality_report": export_result.get("output_quality_report"),
+                "repair_summary": repair_summary,
+                "repair_actions": repair_actions,
             },
         }
         if result.failed:

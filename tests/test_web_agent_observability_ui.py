@@ -27,5 +27,7 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "knowledge_summary" in js
     assert "knowledge_chunk_count" in js
     assert "lesson_pattern" in js
+    assert "repair_summary" in js
+    assert "repair_actions" in js
 
     assert "teacher-diagnostic-card" in css

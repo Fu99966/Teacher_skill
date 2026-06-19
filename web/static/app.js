@@ -435,6 +435,8 @@ function buildDiagnostics(data = {}) {
     knowledge_summary: data.knowledge_summary || null,
     knowledge_chunk_count: data.knowledge_chunk_count ?? null,
     lesson_pattern: data.lesson_pattern || null,
+    repair_summary: data.repair_summary || null,
+    repair_actions: data.repair_actions || [],
     repeat_fill_mode: data.repeat_fill_mode || currentRequestContext.repeat_fill_mode || selectedRepeatFillMode(),
     teacher_diagnostic_report: data.teacher_diagnostic_report || currentTeacherDiagnosticReport,
     template_fields: data.template_fields || currentTemplateAnalysis?.mapped_fields || [],

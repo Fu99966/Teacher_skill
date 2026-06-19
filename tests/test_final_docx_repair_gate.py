@@ -162,6 +162,9 @@ def test_final_docx_failure_triggers_field_repair_and_reexport(tmp_path):
     assert raw_request in export_calls[0]
     assert raw_request not in export_calls[1]
     assert result.state.evaluation_report["passed"] is True
+    actions = result.state.task.get("_repair_actions") or []
+    assert result.state.task.get("_repair_summary")
+    assert any(action.get("type") == "remove_prompt_leak" for action in actions)
 
 
 def test_final_docx_quality_requires_generated_field_content(tmp_path):

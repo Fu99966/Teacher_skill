@@ -103,3 +103,5 @@ def test_agent_run_web_response_exposes_knowledge_diagnostics():
     assert '"knowledge_summary": result.state.task.get("_knowledge_summary", "")' in source
     assert '"knowledge_chunk_count": result.state.task.get("_knowledge_chunk_count", 0)' in source
     assert '"lesson_pattern": result.state.task.get("_lesson_pattern", "")' in source
+    assert '"repair_summary": repair_summary' in source
+    assert '"repair_actions": repair_actions' in source
