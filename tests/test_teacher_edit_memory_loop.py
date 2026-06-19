@@ -107,6 +107,8 @@ def test_local_fallback_reuses_exact_teacher_edit_without_overwriting_identity(m
 
     assert result["generation_backend"] == "local_fallback"
     assert set(result["memory_fields_reused"]) >= {"teaching_process", "teaching_method", "homework"}
+    assert state.task["_memory_examples_used"] == 1
+    assert set(state.task["_memory_fields_reused"]) >= {"teaching_process", "teaching_method", "homework"}
     assert state.fields["lesson_title"] == "传感器基础"
     assert state.fields["grade"] == "24级物联网班"
     assert state.fields["teaching_process"] == "老师确认后的证据链实验过程"

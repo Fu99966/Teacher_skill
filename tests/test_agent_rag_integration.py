@@ -105,3 +105,5 @@ def test_agent_run_web_response_exposes_knowledge_diagnostics():
     assert '"lesson_pattern": result.state.task.get("_lesson_pattern", "")' in source
     assert '"repair_summary": repair_summary' in source
     assert '"repair_actions": repair_actions' in source
+    assert '"memory_examples_used": memory_examples_used' in source
+    assert '"memory_fields_reused": memory_fields_reused' in source

@@ -19,6 +19,7 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "repair-actions-card" in html
     assert "repair-actions-list" in html
     assert "template-profile-status" in html
+    assert "memory-status" in html
     assert "记住这次修改" in html
 
     assert "/api/remember-edit" in js
@@ -37,7 +38,12 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "renderTemplateProfileStatus" in js
     assert "current.template_profile" in js
     assert "模板画像：已复用历史成功映射" in js
+    assert "renderMemoryStatus" in js
+    assert "memory_examples_used" in js
+    assert "memory_fields_reused" in js
+    assert "老师修改记忆：已参考" in js
 
     assert "teacher-diagnostic-card" in css
     assert "repair-actions" in css
     assert "template-profile-status" in css
+    assert "memory-status" in css

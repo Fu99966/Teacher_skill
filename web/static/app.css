@@ -1012,7 +1012,8 @@ textarea:focus {
   color: #4b5c37;
 }
 
-.template-profile-status {
+.template-profile-status,
+.memory-status {
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: var(--radius);
@@ -1023,6 +1024,11 @@ textarea:focus {
 }
 
 .template-profile-status[data-status="hit"] {
+  background: rgba(120, 140, 93, 0.12);
+  color: #4b5c37;
+}
+
+.memory-status[data-status="reused"] {
   background: rgba(120, 140, 93, 0.12);
   color: #4b5c37;
 }

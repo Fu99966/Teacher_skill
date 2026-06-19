@@ -125,6 +125,7 @@ def build_agent_tool_registry(
             if reused_fields:
                 state.warnings.append("已复用同课题、同课时模板中的老师历史修改。")
         state.task["_generation_backend"] = backend
+        state.task["_memory_examples_used"] = len(examples)
         state.task["_memory_fields_reused"] = reused_fields
         state.task["_knowledge_summary"] = knowledge_context.source_summary
         state.task["_knowledge_chunk_count"] = len(knowledge_context.chunks)

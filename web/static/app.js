@@ -17,6 +17,7 @@ const teacherDiagnosticList = document.querySelector("#teacher-diagnostic-list")
 const repairActionsCard = document.querySelector("#repair-actions-card");
 const repairActionsList = document.querySelector("#repair-actions-list");
 const templateProfileStatus = document.querySelector("#template-profile-status");
+const memoryStatus = document.querySelector("#memory-status");
 const scopeHint = document.querySelector("#scope-hint");
 const methodWarning = document.querySelector("#method-warning");
 const deriveMethodButton = document.querySelector("#derive-method-button");
@@ -440,6 +441,8 @@ function buildDiagnostics(data = {}) {
     lesson_pattern: data.lesson_pattern || null,
     repair_summary: data.repair_summary || null,
     repair_actions: data.repair_actions || [],
+    memory_examples_used: data.memory_examples_used ?? null,
+    memory_fields_reused: data.memory_fields_reused || [],
     repeat_fill_mode: data.repeat_fill_mode || currentRequestContext.repeat_fill_mode || selectedRepeatFillMode(),
     teacher_diagnostic_report: data.teacher_diagnostic_report || currentTeacherDiagnosticReport,
     template_fields: data.template_fields || currentTemplateAnalysis?.mapped_fields || [],
@@ -499,6 +502,7 @@ function renderTeacherDiagnostic(report) {
   });
   renderRepairActions(current.repair_actions || []);
   renderTemplateProfileStatus(current.template_profile || null);
+  renderMemoryStatus(current.memory_status || null);
 }
 
 function renderRepairActions(actions = []) {
@@ -528,6 +532,18 @@ function renderTemplateProfileStatus(profile = null) {
   templateProfileStatus.textContent = hit
     ? `模板画像：已复用历史成功映射，字段 ${mappedCount} 个，重复表格策略 ${mode}。`
     : `模板画像：本次将建立新画像，已识别字段 ${mappedCount} 个。`;
+}
+
+function renderMemoryStatus(memory = null) {
+  if (!memoryStatus) return;
+  const examplesUsed = Number(memory?.examples_used || 0);
+  const fieldsReused = Array.isArray(memory?.fields_reused) ? memory.fields_reused : [];
+  memoryStatus.hidden = examplesUsed === 0 && fieldsReused.length === 0;
+  if (memoryStatus.hidden) return;
+  memoryStatus.dataset.status = fieldsReused.length ? "reused" : "seen";
+  memoryStatus.textContent = fieldsReused.length
+    ? `老师修改记忆：已参考 ${examplesUsed} 条历史修改，并复用字段 ${fieldsReused.join("、")}。`
+    : `老师修改记忆：已参考 ${examplesUsed} 条历史修改，本次未直接覆盖字段。`;
 }
 
 function applyResult(data) {
