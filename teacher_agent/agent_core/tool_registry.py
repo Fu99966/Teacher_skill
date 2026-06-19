@@ -78,6 +78,7 @@ def build_agent_tool_registry(
             title=str(task.get("title") or ""),
             class_type=str(task.get("class_type") or ""),
             teaching_style=str(task.get("teaching_style") or ""),
+            class_hour=str(task.get("class_hour") or ""),
         )
         enhanced_material = knowledge_context.enhanced_material(material)
 

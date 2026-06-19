@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import re
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,9 @@ LESSON_PATTERNS: dict[str, LessonPattern] = {
 
 def infer_lesson_pattern(class_type: str, teaching_style: str = "", title: str = "", class_hour: str = "") -> LessonPattern:
     text = f"{class_type} {teaching_style} {title} {class_hour}".lower()
+    hour_count = _parse_class_hour_count(class_hour)
+    if hour_count >= 9:
+        return LESSON_PATTERNS["project_lesson"]
     if any(marker in text for marker in ("项目", "pbl", "project")):
         return LESSON_PATTERNS["project_lesson"]
     if any(marker in text for marker in ("实训", "训练", "操作")):
@@ -71,6 +75,17 @@ def infer_lesson_pattern(class_type: str, teaching_style: str = "", title: str =
     if any(marker in text for marker in ("复习", "讲评", "习题")):
         return LESSON_PATTERNS["review_lesson"]
     return LESSON_PATTERNS["regular_lesson"]
+
+
+def _parse_class_hour_count(class_hour: str) -> int:
+    text = str(class_hour or "").translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    match = re.search(r"(\d+)\s*(?:课时|学时|节课)?", text)
+    if match:
+        try:
+            return max(1, int(match.group(1)))
+        except ValueError:
+            return 1
+    return 1
 
 
 def pattern_prompt_notes(pattern: LessonPattern) -> str:

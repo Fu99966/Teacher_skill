@@ -106,6 +106,7 @@ def build_knowledge_context(
     title: str,
     class_type: str,
     teaching_style: str,
+    class_hour: str = "",
 ) -> KnowledgeContext:
     chunks = _split_material(material)
     ranked = sorted(
@@ -114,7 +115,7 @@ def build_knowledge_context(
         reverse=True,
     )
     selected = ranked[:MAX_SELECTED_CHUNKS]
-    lesson_pattern = infer_lesson_pattern(class_type, teaching_style, title).to_dict()
+    lesson_pattern = infer_lesson_pattern(class_type, teaching_style, title, class_hour).to_dict()
     few_shot_notes = _load_few_shot_notes(class_type, teaching_style)
     summary = (
         f"已从教材/补充资料中抽取 {len(selected)} 个重点片段，"
