@@ -10,6 +10,7 @@ def diagnose_failure(state: AgentRunState) -> dict[str, Any]:
     suggestions: list[str] = []
     fields = state.fields or {}
     fill_report = (state.export_result or {}).get("fill_report", {}) if state.export_result else {}
+    output_quality = (state.export_result or {}).get("output_quality_report", {}) if state.export_result else {}
     evaluation = state.evaluation_report or {}
 
     if not fields:
@@ -37,6 +38,13 @@ def diagnose_failure(state: AgentRunState) -> dict[str, Any]:
     if evaluation and not evaluation.get("passed", True):
         issues.append(str(evaluation.get("summary") or "交付检查未通过。"))
 
+    if output_quality and not output_quality.get("passed", True):
+        for error in output_quality.get("errors") or []:
+            message = str(error).strip()
+            if message and message not in issues:
+                issues.append(message)
+        suggestions.append("已重新读取最终 Word，请按实际交付文档问题修复后重新导出。")
+
     if not issues:
         issues.append("未检测到明确失败原因。")
     if not suggestions:
@@ -60,6 +68,7 @@ def repair_state(state: AgentRunState) -> AgentRunState:
 
     from ..lesson_generator import (
         _local_fallback_fields,
+        is_generation_request_text,
         normalize_lesson_field_aliases,
         refine_lesson_field,
         sanitize_lesson_title,
@@ -99,13 +108,18 @@ def repair_state(state: AgentRunState) -> AgentRunState:
             title,
         )
 
-    for key in ("teaching_process", "teaching_goals", "homework", "reflection"):
+    raw_request = str(task.get("raw_text") or task.get("agent_request") or "").strip()
+    for key in dynamic_fields:
         value = str(fields.get(key) or "")
-        if "帮我生成" in value or "生成一份" in value:
-            fields[key] = "\n".join(
-                line for line in value.splitlines()
-                if "帮我生成" not in line and "生成一份" not in line
-            ).strip() or fallback.get(key, value)
+        if not value:
+            continue
+        cleaned = value.replace(raw_request, "").strip() if raw_request else value
+        cleaned = "\n".join(
+            line for line in cleaned.splitlines()
+            if not is_generation_request_text(line)
+        ).strip()
+        if cleaned != value:
+            fields[key] = cleaned or fallback.get(key, value)
 
     state.fields = fields
     if any(str(value or "").strip() for value in fields.values()):

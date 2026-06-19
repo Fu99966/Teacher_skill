@@ -390,6 +390,7 @@ class TeacherWorkflow:
         output_quality_report = inspect_docx_delivery_quality(
             output_path,
             repeat_fill_mode=actual_repeat_mode,
+            expected_fields=fields,
         )
         template_analysis = analyze_template(template_path)
         teacher_diagnostic_report = build_teacher_diagnostic_report(

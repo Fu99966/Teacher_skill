@@ -141,6 +141,7 @@ def evaluate_delivery(
     download_url: str | None,
     template_analysis: dict[str, Any] | None,
     fill_report: dict[str, Any] | None = None,
+    output_quality_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Check technical delivery: file exists, fields written, no placeholders."""
     checks: list[dict[str, Any]] = []
@@ -167,6 +168,14 @@ def evaluate_delivery(
 
     if output_path and output_path.exists():
         _c("no_docx_placeholders", not _docx_has_placeholders(output_path), "Word中仍残留占位符")
+
+    if output_quality_report:
+        quality_errors = [str(item) for item in output_quality_report.get("errors") or []]
+        _c(
+            "final_docx_quality",
+            bool(output_quality_report.get("passed")),
+            "; ".join(quality_errors) or "最终 Word 内容质量检查未通过",
+        )
 
     score = max(0, score)
     passed = all(c["passed"] for c in checks)

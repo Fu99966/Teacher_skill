@@ -33,6 +33,22 @@ def _document_text(document: Document) -> str:
     return "\n".join(parts)
 
 
+def _expected_content_present(expected: str, normalized_document: str) -> bool:
+    normalized_expected = _normalize_label(expected)
+    if not normalized_expected:
+        return True
+    if len(normalized_expected) <= 10:
+        return normalized_expected in normalized_document
+    if normalized_expected[:24] in normalized_document:
+        return True
+    grams = {
+        normalized_expected[index : index + 6]
+        for index in range(0, len(normalized_expected) - 5, 6)
+    }
+    matches = sum(1 for gram in grams if gram in normalized_document)
+    return matches >= min(2, len(grams))
+
+
 def _paragraph_body_after_heading(document: Document, headings: tuple[str, ...]) -> str:
     normalized_headings = {_normalize_label(heading) for heading in headings}
     paragraphs = document.paragraphs
@@ -112,6 +128,7 @@ def inspect_docx_delivery_quality(
     docx_path: str | Path,
     *,
     repeat_fill_mode: str | None = None,
+    expected_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Inspect the final DOCX artifact instead of trusting intermediate field data."""
     path = Path(docx_path)
@@ -149,6 +166,23 @@ def inspect_docx_delivery_quality(
     }
     for check_name, labels in required_labels.items():
         checks[check_name] = any(_normalize_label(label) in normalized for label in labels)
+
+    expected_content_checks: list[str] = []
+    for field_name in (
+        "lesson_title",
+        "teaching_goals",
+        "teaching_key_difficult",
+        "teaching_process",
+        "teaching_method",
+        "homework",
+        "reflection",
+    ):
+        expected = _normalize_label(str((expected_fields or {}).get(field_name) or ""))
+        if not expected:
+            continue
+        check_name = f"field_content_{field_name}"
+        expected_content_checks.append(check_name)
+        checks[check_name] = _expected_content_present(expected, normalized)
 
     parallel_sections = _parallel_process_method_cells(document)
     if parallel_sections:
@@ -202,7 +236,7 @@ def inspect_docx_delivery_quality(
         "teaching_method_written",
         "teaching_method_fit_for_narrow_cell",
         "duplicate_first_only_preserved",
-    )
+    ) + tuple(expected_content_checks)
     messages = {
         "no_prompt_leak": "检测到生成指令泄漏到 Word 正文。",
         "no_unnamed_title": "课题仍为“未命名课题”。",
@@ -222,7 +256,7 @@ def inspect_docx_delivery_quality(
     }
     for check_name in critical_checks:
         if not checks.get(check_name, False):
-            errors.append(messages[check_name])
+            errors.append(messages.get(check_name, f"最终 Word 中未找到字段内容：{check_name.removeprefix('field_content_')}"))
 
     score = max(0, 100 - len(errors) * 12 - len(warnings) * 5)
     return {

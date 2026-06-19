@@ -257,6 +257,7 @@ def build_agent_tool_registry(
             download_url=export.get("download_url"),
             template_analysis=state.template_analysis,
             fill_report=export.get("fill_report"),
+            output_quality_report=export.get("output_quality_report"),
         )
         state.evaluation_report = report
         if not report.get("passed"):
@@ -266,7 +267,7 @@ def build_agent_tool_registry(
     registry.register(
         "evaluate_delivery",
         evaluate_delivery_tool,
-        ToolSpec(name="evaluate_delivery", description="检查 Word 交付质量", retryable=True, critical=True),
+        ToolSpec(name="evaluate_delivery", description="检查 Word 交付质量", retryable=False, critical=True),
     )
 
     def teacher_report_tool(context: dict[str, Any]) -> dict[str, Any]:
