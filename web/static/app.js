@@ -16,6 +16,7 @@ const teacherDiagnosticSummary = document.querySelector("#teacher-diagnostic-sum
 const teacherDiagnosticList = document.querySelector("#teacher-diagnostic-list");
 const repairActionsCard = document.querySelector("#repair-actions-card");
 const repairActionsList = document.querySelector("#repair-actions-list");
+const templateProfileStatus = document.querySelector("#template-profile-status");
 const scopeHint = document.querySelector("#scope-hint");
 const methodWarning = document.querySelector("#method-warning");
 const deriveMethodButton = document.querySelector("#derive-method-button");
@@ -497,6 +498,7 @@ function renderTeacherDiagnostic(report) {
     teacherDiagnosticList.append(item);
   });
   renderRepairActions(current.repair_actions || []);
+  renderTemplateProfileStatus(current.template_profile || null);
 }
 
 function renderRepairActions(actions = []) {
@@ -512,6 +514,20 @@ function renderRepairActions(actions = []) {
     }
     repairActionsList.append(item);
   });
+}
+
+function renderTemplateProfileStatus(profile = null) {
+  if (!templateProfileStatus) return;
+  templateProfileStatus.hidden = !profile;
+  if (!profile) return;
+
+  const mappedCount = Number(profile.mapped_field_count || 0);
+  const mode = profile.repeat_fill_mode || "first_only";
+  const hit = profile.profile_hit === true;
+  templateProfileStatus.dataset.status = hit ? "hit" : "new";
+  templateProfileStatus.textContent = hit
+    ? `模板画像：已复用历史成功映射，字段 ${mappedCount} 个，重复表格策略 ${mode}。`
+    : `模板画像：本次将建立新画像，已识别字段 ${mappedCount} 个。`;
 }
 
 function applyResult(data) {

@@ -1012,6 +1012,21 @@ textarea:focus {
   color: #4b5c37;
 }
 
+.template-profile-status {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(217, 119, 87, 0.1);
+  color: #6f3c27;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.template-profile-status[data-status="hit"] {
+  background: rgba(120, 140, 93, 0.12);
+  color: #4b5c37;
+}
+
 .preview-groups {
   gap: 14px;
 }
