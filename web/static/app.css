@@ -915,6 +915,10 @@ textarea:focus {
   word-break: break-word;
 }
 
+.diagnostic-copy-button {
+  margin: 0 0 10px;
+}
+
 .preview-card,
 .delivery-card {
   padding: 48px 58px 54px;

@@ -59,6 +59,7 @@ const clearModelButton = document.querySelector("#clear-model-button");
 const historyList = document.querySelector("#history-list");
 const refreshHistoryButton = document.querySelector("#refresh-history-button");
 const diagnosticsOutput = document.querySelector("#diagnostics-output");
+const copyDiagnosticsButton = document.querySelector("#copy-diagnostics-button");
 const toast = document.querySelector("#toast");
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -453,6 +454,30 @@ function buildDiagnostics(data = {}) {
     agent_trace: data.workflow_trace || currentWorkflowTrace
   };
   diagnosticsOutput.textContent = JSON.stringify(report, null, 2);
+}
+
+async function copyDiagnosticsReport() {
+  const text = diagnosticsOutput?.textContent?.trim() || "";
+  if (!text) {
+    showToast("暂无可复制的诊断报告。", "error");
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const range = document.createRange();
+      range.selectNodeContents(diagnosticsOutput);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.execCommand("copy");
+      selection.removeAllRanges();
+    }
+    showToast("诊断报告已复制。");
+  } catch {
+    showToast("复制失败，请手动选中高级诊断内容复制。", "error");
+  }
 }
 
 function renderMaterialExtractionStatus(extraction = null) {
@@ -1147,6 +1172,7 @@ saveModelButton.addEventListener("click", saveModelConfig);
 testModelButton.addEventListener("click", testModelConnection);
 clearModelButton.addEventListener("click", clearModelConfig);
 refreshHistoryButton.addEventListener("click", loadHistory);
+copyDiagnosticsButton?.addEventListener("click", copyDiagnosticsReport);
 
 setStep("input");
 setDownload(null);

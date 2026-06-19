@@ -16,6 +16,8 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "上传教材资料" in html
     assert "material-extraction-status" in html
     assert "teacher-diagnostic-card" in html
+    assert "copy-diagnostics-button" in html
+    assert "复制诊断报告" in html
     assert "repair-actions-card" in html
     assert "repair-actions-list" in html
     assert "template-profile-status" in html
@@ -25,6 +27,9 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "/api/remember-edit" in js
     assert "teacher_diagnostic_report" in js
     assert "renderTeacherDiagnostic" in js
+    assert "copyDiagnosticsReport" in js
+    assert "navigator.clipboard" in js
+    assert "document.execCommand(\"copy\")" in js
     assert "renderMaterialExtractionStatus" in js
     assert "material_extraction" in js
     assert "materialFile" in js
@@ -44,6 +49,7 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "老师修改记忆：已参考" in js
 
     assert "teacher-diagnostic-card" in css
+    assert "diagnostic-copy-button" in css
     assert "repair-actions" in css
     assert "template-profile-status" in css
     assert "memory-status" in css
