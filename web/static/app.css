@@ -996,6 +996,22 @@ textarea:focus {
   padding-left: 18px;
 }
 
+.repair-actions {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(120, 140, 93, 0.18);
+}
+
+.repair-actions strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.repair-actions li {
+  color: #4b5c37;
+}
+
 .preview-groups {
   gap: 14px;
 }

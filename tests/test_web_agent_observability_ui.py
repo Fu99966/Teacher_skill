@@ -16,6 +16,8 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "上传教材资料" in html
     assert "material-extraction-status" in html
     assert "teacher-diagnostic-card" in html
+    assert "repair-actions-card" in html
+    assert "repair-actions-list" in html
     assert "记住这次修改" in html
 
     assert "/api/remember-edit" in js
@@ -29,5 +31,8 @@ def test_web_exposes_teacher_diagnostic_memory_and_material_upload():
     assert "lesson_pattern" in js
     assert "repair_summary" in js
     assert "repair_actions" in js
+    assert "renderRepairActions" in js
+    assert "repairActionsCard.hidden = visibleActions.length === 0" in js
 
     assert "teacher-diagnostic-card" in css
+    assert "repair-actions" in css

@@ -14,6 +14,8 @@ const statusLine = document.querySelector("#status-line");
 const teacherDiagnosticCard = document.querySelector("#teacher-diagnostic-card");
 const teacherDiagnosticSummary = document.querySelector("#teacher-diagnostic-summary");
 const teacherDiagnosticList = document.querySelector("#teacher-diagnostic-list");
+const repairActionsCard = document.querySelector("#repair-actions-card");
+const repairActionsList = document.querySelector("#repair-actions-list");
 const scopeHint = document.querySelector("#scope-hint");
 const methodWarning = document.querySelector("#method-warning");
 const deriveMethodButton = document.querySelector("#derive-method-button");
@@ -493,6 +495,22 @@ function renderTeacherDiagnostic(report) {
     const item = document.createElement("li");
     item.textContent = text;
     teacherDiagnosticList.append(item);
+  });
+  renderRepairActions(current.repair_actions || []);
+}
+
+function renderRepairActions(actions = []) {
+  if (!repairActionsCard || !repairActionsList) return;
+  repairActionsList.innerHTML = "";
+  const visibleActions = Array.isArray(actions) ? actions.filter(Boolean) : [];
+  repairActionsCard.hidden = visibleActions.length === 0;
+  visibleActions.forEach((action) => {
+    const item = document.createElement("li");
+    item.textContent = action.message || action.type || "已执行自动修复";
+    if (Array.isArray(action.fields) && action.fields.length) {
+      item.title = `涉及字段：${action.fields.join("、")}`;
+    }
+    repairActionsList.append(item);
   });
 }
 
